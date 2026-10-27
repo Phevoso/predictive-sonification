@@ -5,7 +5,7 @@ import { between, clamp } from '../util.js';
 
 const PIANO = {
     samples: ['A2', 'C3', 'Ds3', 'Fs3', 'A3', 'C4', 'Ds4', 'Fs4', 'A4', 'C5', 'Ds5', 'Fs5', 'A5', 'C6', 'Ds6', 'Fs6', 'A6'],
-    level: 2.6,           // the samples peak around 0.3
+    level: 4,             // trim to REFERENCE; the samples peak around 0.3
     curve: 1.6,           // velocity exponent
     felt: [380, 1300],    // Hz, soft to hard touch
     attack: 0.018,

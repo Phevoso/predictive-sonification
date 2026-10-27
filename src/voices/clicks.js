@@ -2,7 +2,7 @@
 
 import { makeNoiseBuffer } from '../util.js';
 
-const LEVEL = 0.3;
+const LEVEL = 1.34;   // trim to REFERENCE, by peak
 
 export class Clicks {
     constructor(ctx, output) {

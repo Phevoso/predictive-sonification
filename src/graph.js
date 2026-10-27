@@ -4,9 +4,15 @@ import { lerp, makeImpulse } from './util.js';
 
 export const VOICES = ['pads', 'piano', 'bass', 'noise', 'clicks'];
 
+// Each voice is trimmed so a typical note or chord sits at REFERENCE (dBFS RMS) on its own, which
+// tools/calibrate.html checks. MIX is the balance between them, in dB.
+export const REFERENCE = -24;
+const MIX = { pads: -3.5, piano: -3.5, bass: 7, noise: 6, clicks: -13 };
+const fromDb = (db) => 10 ** (db / 20);
+
 const FX = {
     reverb: { seconds: 7, damping: 0.55 },
-    sends: { pads: 0.55, piano: 0.7, bass: 0.06, noise: 0.3, clicks: 0.2 },
+    sends: { pads: 0.55, piano: 0.7, bass: 0.06, noise: 0.8, clicks: 0.2 },
     dry: { piano: 0.4 },
     delay: { time: 0.62, feedback: 0.42, tone: 2200, sends: { piano: 0.35, clicks: 0.3, pads: 0.08 } },
     hall: { seconds: 12, damping: 0.85, predelay: 0.045, send: 1.2 },   // piano only
@@ -68,10 +74,14 @@ export function buildGraph(ctx) {
     delayTone.connect(new GainNode(ctx, { gain: 0.55 })).connect(g.mix);
     delayTone.connect(new GainNode(ctx, { gain: 0.25 })).connect(g.reverbIn);
 
+    // fader -> bus; the bus is what the line-up switches and the meters read
+    g.faders = {};
     g.buses = {};
     g.analysers = {};
     for (const name of VOICES) {
         const bus = new GainNode(ctx);
+        g.faders[name] = new GainNode(ctx, { gain: fromDb(MIX[name]) });
+        g.faders[name].connect(bus);
         const analyser = new AnalyserNode(ctx, { fftSize: 512, smoothingTimeConstant: 0.6 });
         const wobbled = name === 'pads' || name === 'piano';
         bus.connect(analyser);
@@ -89,9 +99,9 @@ export function buildGraph(ctx) {
 
     // per-voice inputs
     g.pads = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 1800, Q: 0.5 });
-    g.pads.connect(g.buses.pads);
+    g.pads.connect(g.faders.pads);
     g.piano = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 7000, Q: 0.3 });
-    g.piano.connect(g.buses.piano);
+    g.piano.connect(g.faders.piano);
 
     return g;
 }

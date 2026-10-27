@@ -9,13 +9,13 @@ export const PADS = {
     release: [6, 10],
     chord: [9, 16],         // seconds per chord
     cutoff: [450, 4200],
-    synth: { detune: [6, 12], saw: 0.35, level: 0.05 },
+    synth: { detune: [6, 12], saw: 0.35, level: 0.074 },   // levels are trims to REFERENCE
     vangex: {
         banks: 2,           // two instances take turns so a chord's release isn't retuned
         peak: 0.1,
         gain: 5,
         harmonic: [1, 6],
-        level: 1.9
+        level: 80
     }
 };
 

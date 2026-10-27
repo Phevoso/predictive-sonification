@@ -1,5 +1,6 @@
-// Which voices play besides the piano and the weather noise. The line-up follows the current
-// episode shape, holds for a while, and every few minutes the piano is left on its own.
+// Which voices play besides the piano and the weather noise. The pads carry the forecast and stay
+// in except on a hollow shape; bass and clicks follow the episode shape. The line-up holds for a
+// while, and every few minutes the piano is left on its own.
 
 import { between } from '../util.js';
 
@@ -7,10 +8,10 @@ const ORCHESTRA = {
     lineups: {
         still: ['pads'],
         rising: ['pads', 'bass', 'clicks'],
-        falling: ['bass', 'clicks'],
+        falling: ['pads', 'bass', 'clicks'],
         swell: ['pads', 'bass', 'clicks'],
         hollow: [],
-        restless: ['bass', 'clicks']
+        restless: ['pads', 'bass', 'clicks']
     },
     opening: ['pads'],
     departure: 0.9,       // a departure this strong adds the bass

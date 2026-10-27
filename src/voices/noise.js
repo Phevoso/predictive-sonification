@@ -1,8 +1,9 @@
-// Weather noise: the rain~.pd worklet, always on. The current conditions pick one of the patch's
-// eight presets, the weather readings nudge its sliders (as the sensors did in the original
-// installation), and a strong departure leans it toward the storm preset.
+// Weather noise, always on. Two engines: the rain~.pd worklet, where the current conditions pick
+// one of the patch's eight presets, the readings nudge its sliders (as the sensors did in the
+// original installation) and a strong departure leans it toward the storm preset; or a calm bed of
+// brown and pink noise that opens with the wind and swells slowly, for sleep and meditation.
 
-import { clamp, lerp, rms } from '../util.js';
+import { between, clamp, lerp, rms } from '../util.js';
 import { DEPARTING } from '../music/melody.js';
 
 const SLIDERS = ['crackles', 'hipass', 'dropAmount', 'intensity', 'windiness', 'dropGain', 'dropSize', 'size'];
@@ -19,18 +20,35 @@ const PRESETS = {
 };
 
 const NOISE = {
+    engine: 'calm',                   // 'calm' or 'rain'
+    rainUnder: 0,                     // how much rain~ plays beneath the calm bed
     sensorInfluence: 0.35,
-    storm: 0.5,
+    storm: 0.15,
     mars: { ice: 0.35 },              // share of its range below which Mars sounds as ice
     solar: { gale: 450, storm: 600 }, // km/s
     floor: { windiness: 45, dropGain: 20 },
+    // Crackles and loud drops multiply noise by noise and sound gritty; kept low so it stays calm
+    ceiling: { crackles: 15, dropGain: 35 },
     glide: 6,
     lowpass: 250,
+    // An octave down from the patch: its filter sliders scale as 2^(6x) Hz (2^(14x) for the
+    // highpass), so these many slider steps halve each frequency
+    octave: { size: 127 / 6, dropSize: 127 / 6, dropAmount: 127 / 6, hipass: 127 / 14 },
     // No compressor: in Web Audio one adds makeup gain and pumps the low end
-    level: 22,
     loudness: 0.004,                  // RMS after the lowpass that louder weather is held to
+    level: 15.8,                      // trim: puts that ceiling at REFERENCE
     sand: 9                           // garden grains per second at full drop amount
 };
+
+const CALM = {
+    tilt: 0.75,                       // brown against pink
+    cutoff: [160, 480],               // Hz, still air to wind and storm
+    swell: { period: [8, 20], depth: [0.15, 0.55] },   // seconds per breath, how far it dips
+    level: 0.24                       // trim: about 4 dB under REFERENCE at the top of a breath
+};
+
+// How open the calm bed is: the windier the sliders, and the stormier the preset, the brighter
+const OPENNESS = { dry: 0, ice: 0.1, snow: 0.2, summer: 0.2, mist: 0.3, rain: 0.5, gale: 0.8, storm: 1 };
 
 // classifyCondition from the original patch
 function weatherCondition({ temperature, humidity, wind }, { code } = {}) {
@@ -72,12 +90,23 @@ export function condition(kind, sample, relative) {
 export class WeatherNoise {
     constructor(ctx, output) {
         this.ctx = ctx;
+        // two lowpasses in series for a steeper, softer top
         this.lowpass = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: NOISE.lowpass, Q: 0 });
+        const second = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: NOISE.lowpass, Q: 0 });
         this.guard = new GainNode(ctx, { gain: 1 });
-        this.gain = new GainNode(ctx, { gain: NOISE.level });
+        const rainLevel = NOISE.level * (NOISE.engine === 'rain' ? 1 : NOISE.rainUnder);
+        this.gain = new GainNode(ctx, { gain: 1 });   // the texture control, on both engines
         this.meter = new AnalyserNode(ctx, { fftSize: 2048, smoothingTimeConstant: 0 });
-        this.lowpass.connect(this.guard).connect(this.gain).connect(output);
-        this.lowpass.connect(this.meter);
+        this.lowpass.connect(second).connect(this.guard).connect(new GainNode(ctx, { gain: rainLevel })).connect(this.gain);
+        second.connect(this.meter);
+        this.gain.connect(output);
+
+        this.calmFilter = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: CALM.cutoff[0], Q: 0 });
+        this.swell = new GainNode(ctx, { gain: 1 });
+        const calmLevel = NOISE.engine === 'calm' ? CALM.level : 0;
+        this.calmFilter.connect(this.swell).connect(new GainNode(ctx, { gain: calmLevel })).connect(this.gain);
+        this.calm = null;
+        this.breath = { phase: 0, period: CALM.swell.period[1] };
         this.meterBuffer = new Float32Array(2048);
         this.node = null;
         this.preset = 'dry';
@@ -87,18 +116,39 @@ export class WeatherNoise {
     }
 
     load() {
-        this.loading ??= this.ctx.audioWorklet
-            .addModule(new URL('../worklets/noise-gen.js', import.meta.url))
-            .then(() => {
+        const worklet = this.ctx.audioWorklet;
+        this.loading ??= Promise.all([
+            worklet.addModule(new URL('../worklets/noise-gen.js', import.meta.url)).then(() => {
                 this.node = new AudioWorkletNode(this.ctx, 'weather-noise', { numberOfInputs: 0, outputChannelCount: [2] });
                 this.node.connect(this.lowpass);
+            }),
+            worklet.addModule(new URL('../worklets/calm-noise.js', import.meta.url)).then(() => {
+                this.calm = new AudioWorkletNode(this.ctx, 'calm-noise', { numberOfInputs: 0, outputChannelCount: [2] });
+                this.calm.parameters.get('tilt').value = CALM.tilt;
+                this.calm.connect(this.calmFilter);
             })
-            .catch((error) => console.warn('Weather noise unavailable', error));
+        ]).catch((error) => console.warn('Weather noise unavailable', error));
         return this.loading;
     }
 
     setTexture(texture, now) {
-        this.gain.gain.setTargetAtTime(NOISE.level * lerp(0.4, 1.8, texture), now, 0.5);
+        this.gain.gain.setTargetAtTime(lerp(0.4, 1.8, texture), now, 0.5);
+    }
+
+    // The calm bed: brighter with wind and stormy weather, breathing slowly, deeper when it's rough
+    updateCalm(now, dt, sliders, storm) {
+        const open = clamp(0.5 * OPENNESS[this.preset] + 0.5 * (sliders.windiness / 127) + storm);
+        this.calmFilter.frequency.setTargetAtTime(between(CALM.cutoff, open), now, NOISE.glide);
+
+        const breath = this.breath;
+        breath.phase += dt / breath.period;
+        if (breath.phase >= 1) {
+            breath.phase -= 1;
+            breath.period = between(CALM.swell.period, this.rng());
+        }
+        const depth = between(CALM.swell.depth, open);
+        const dip = 0.5 - 0.5 * Math.cos(2 * Math.PI * breath.phase);
+        this.swell.gain.setTargetAtTime(1 - depth * dip, now, 0.4);
     }
 
     update(now, dt, { kind, sample, relative, departure, uncertainty, presence }) {
@@ -114,9 +164,15 @@ export class WeatherNoise {
         }
         sliders.windiness = Math.max(NOISE.floor.windiness, sliders.windiness);
         sliders.dropGain = Math.max(NOISE.floor.dropGain, sliders.dropGain);
+        for (const [name, most] of Object.entries(NOISE.ceiling)) sliders[name] = Math.min(most, sliders[name]);
         if (this.node) {
-            for (const name of SLIDERS) this.node.parameters.get(name).setTargetAtTime(sliders[name], now, NOISE.glide);
+            for (const name of SLIDERS) {
+                const value = Math.max(0, sliders[name] - (NOISE.octave[name] ?? 0));
+                this.node.parameters.get(name).setTargetAtTime(value, now, NOISE.glide);
+            }
         }
+
+        this.updateCalm(now, dt, sliders, storm);
 
         // slow gain that only ever turns loud weather down
         const level = rms(this.meter, this.meterBuffer);

@@ -163,9 +163,9 @@ export class Engine extends EventTarget {
         this.graph = g;
         this.pads = new Pads(this.ctx, g.pads);
         this.piano = new Piano(this.ctx, g.piano);
-        this.bass = new Bass(this.ctx, g.buses.bass);
-        this.noise = new WeatherNoise(this.ctx, g.buses.noise);
-        this.clicks = new Clicks(this.ctx, g.buses.clicks);
+        this.bass = new Bass(this.ctx, g.faders.bass);
+        this.noise = new WeatherNoise(this.ctx, g.faders.noise);
+        this.clicks = new Clicks(this.ctx, g.faders.clicks);
         this.melody = new Melody(this.harmony, this.piano, (type, detail, time) => this.emitAt(type, detail, time));
     }
 

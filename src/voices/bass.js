@@ -3,7 +3,7 @@
 import { mtof } from '../util.js';
 import { TONIC } from '../music/harmony.js';
 
-const BASS = { level: 0.2, octave: 0.22, glide: 1.4, swell: 1.7 };
+const BASS = { level: 0.091, octave: 0.22, glide: 1.4, swell: 1.7 };   // level: trim to REFERENCE
 
 export class Bass {
     constructor(ctx, output) {
