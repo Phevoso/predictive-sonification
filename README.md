@@ -43,7 +43,7 @@ Before playback the predictor runs over the earlier history, so it doesn't start
 
 ### Voices
 
-- The pads (Vangex) play the forecast: the mode follows the expected temperature, and the chords
+- The pads play the forecast: the mode follows the expected temperature, and the chords
   move with the direction it is heading.
 - The piano plays the motifs of recurring shapes and, on strong departures, single notes.
 - The weather noise always plays; the current conditions pick its preset.
