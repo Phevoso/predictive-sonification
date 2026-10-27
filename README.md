@@ -44,7 +44,8 @@ Before playback the predictor runs over the earlier history.
 - The pads play the forecast: the mode follows the expected temperature, and the chords
   move with the direction it is heading.
 - The piano plays the motifs of recurring shapes and, on strong departures, single notes.
-- The weather noise always plays; the current conditions pick its preset.
+- The weather noise always plays, a slow brown-noise bed that opens with the wind. The rain~ port
+  is still there behind a switch.
 - Bass and clicks come and go with the shape of the data.
 - The key starts somewhere random and drifts with the long-term trend.
 
@@ -67,6 +68,7 @@ src/sources/       weather, Mars, solar wind
 src/worklets/      rain~ and vangex~ ports
 src/garden.js      the visual
 demo/              run and view it
+tools/             calibrate.html, checks each voice's level
 ```
 
 ## Credits
