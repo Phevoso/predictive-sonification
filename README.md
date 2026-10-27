@@ -3,8 +3,8 @@
 Environmental data played as music in the browser.
 
 Each reading is forecast before it arrives. One voice follows what was expected, another reacts
-when the reading departs from the forecast, and patterns that come back (a rising morning, a
-falling evening) return as motifs. It runs on Web Audio with no build step.
+when the reading departs from the forecast, and patterns that come back return as motifs.
+It runs on Web Audio.
 
 Inspired by [generative_music_iot](https://github.com/Phevoso/generative_music_iot). The `rain~`
 weather noise and `vangex~` synth are ported from its Pure Data patches to AudioWorklets.
@@ -12,10 +12,10 @@ weather noise and `vangex~` synth are ported from its Pure Data patches to Audio
 ## Sources
 
 - Weather for any city, hourly, from [Open-Meteo](https://open-meteo.com/)
-- Mars weather from Curiosity's REMS station, one reading per sol
-  ([NASA/JPL-Caltech/CAB](https://mars.nasa.gov/msl/mission/weather/))
-- Real-time solar wind at L1, one reading per minute
-  ([NOAA SWPC](https://www.swpc.noaa.gov/products/real-time-solar-wind))
+- Mars weather from Curiosity's REMS station, one reading per sol, from
+  [NASA/JPL-Caltech/CAB](https://mars.nasa.gov/msl/mission/weather/)
+- Real-time solar wind at L1, one reading per minute, from
+  [NOAA SWPC](https://www.swpc.noaa.gov/products/real-time-solar-wind)
 
 If a feed is down, a bundled snapshot in `assets/data` is used instead.
 
@@ -32,14 +32,13 @@ the last error. It keeps a running variance of its own error, which grows when s
 missing.
 
 The error is normalized by that variance, combined across channels and ranked against the
-source's history. That rank is the departure. I down-weight channels that move together,
-otherwise temperature and humidity would report the same event twice. Missing data and wide
-predictions go into a separate uncertainty value.
+source's history. That rank is the departure. I down-weight channels that move together.
+Missing data and wide predictions go into a separate uncertainty value.
 
 The primary channel is also read in short windows and classified by slope and curvature into one
 of six shapes. When a shape repeats, it is matched to an earlier episode and its motif comes back.
 
-Before playback the predictor runs over the earlier history, so it doesn't start from nothing.
+Before playback the predictor runs over the earlier history.
 
 ### Voices
 
@@ -52,7 +51,7 @@ Before playback the predictor runs over the earlier history, so it doesn't start
 
 ## Running it
 
-Any static server works. `serve.py` disables caching, which helps while editing:
+Any static server works. `serve.py` disables caching:
 
 ```
 python3 serve.py
@@ -75,9 +74,8 @@ demo/              a minimal page
 
 ## Credits
 
-Piano samples: Salamander Grand Piano by Alexander Holm, CC BY 3.0
-(see `assets/samples/piano/LICENSE.txt`).
+Piano samples: Salamander Grand Piano by Alexander Holm, CC BY 3.0.
 
 ## License
 
-MIT, see `LICENSE`. The piano samples keep their own CC BY 3.0 license.
+MIT, see `LICENSE`. The piano samples are CC BY 3.0.
