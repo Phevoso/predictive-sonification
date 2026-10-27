@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>predictive-sonification</title>
+    <style>
+        :root { --black: #000; --white: #fff; --grey-light: #999; --grey-border: #e5e5e5; --shu: #c23b22; }
+        body { margin: 0; padding: 32px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; color: var(--black); background: var(--white); }
+        .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+        .stage { position: relative; }
+        canvas { display: block; width: 100%; height: 420px; border-top: 1px solid var(--grey-border); border-bottom: 1px solid var(--grey-border); }
+        .status { margin-top: 12px; color: var(--grey-light); }
+        button, select { font: inherit; padding: 4px 10px; }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button type="button" data-toggle>Start</button>
+        <select data-source aria-label="Source">
+            <option value="weather:reykjavik">Reykjavík</option>
+            <option value="weather:kyoto">Kyoto</option>
+            <option value="weather:athens">Athens</option>
+            <option value="weather:wellington">Wellington</option>
+            <option value="weather:longyearbyen">Longyearbyen</option>
+            <option value="mars">Mars, Gale Crater</option>
+            <option value="solar">Solar wind, L1</option>
+        </select>
+        <select data-speed aria-label="Replay speed">
+            <option value="0">Slow</option>
+            <option value="1" selected>Medium</option>
+            <option value="2">Fast</option>
+        </select>
+    </div>
+    <div class="stage"><canvas data-garden></canvas></div>
+    <p class="status" data-status>Loading…</p>
+    <script type="module" src="demo.js"></script>
+</body>
+</html>
