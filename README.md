@@ -23,25 +23,23 @@ If a feed is down, a bundled snapshot in `assets/data` is used instead.
 
 ### Forecasting memory
 
-`memory.js` runs the same loop for every reading: predict, score, then learn. The forecast is made
-before the reading is seen, so the music can tell what is normal for a place from what is not.
+Every source has its own predictor in `memory.js`. Before a sample arrives it predicts the value,
+then scores the real one against it and updates. Most of the music reacts to that error instead of
+the raw value.
 
-- **Forecast.** Each channel has a seasonal baseline, an EWMA per phase bin (24 hourly bins for
-  weather, 36 bins of solar longitude for Mars, a single level for the solar wind), interpolated
-  between bins. An AR(1) term on the last residual carries short-term persistence. The forecast's
-  spread comes from a running estimate of its own error, and widens when readings are missing.
-- **Departure.** Each reading becomes a residual in forecast spreads. The channels are combined
-  into one score, with correlated channels down-weighted so one event isn't counted twice. The
-  score is then ranked against the source's own history as a percentile, so a calm place and a
-  volatile one are comparable.
-- **Uncertainty.** A wide forecast or missing readings are tracked separately from surprise.
-- **Episodes.** The primary channel is watched in short windows. Each window's slope and curvature
-  classify it as still, rising, falling, swell, hollow or restless, judged against how much a
-  window usually moves for that source. When a new shape holds, it is compared with remembered
-  episodes (shape, strength, time of day or season). A close match counts as a return, otherwise
-  a new episode is stored with its own variant of the motif.
-- **Warm-up.** History before the replay window trains the model first, so it starts with an
-  idea of the place.
+The prediction is a baseline for the hour of day, or the season on Mars, plus a one-pole term on
+the last error. It keeps a running variance of its own error, which grows when samples are
+missing.
+
+The error is normalized by that variance, combined across channels and ranked against the
+source's history. That rank is the departure. I down-weight channels that move together,
+otherwise temperature and humidity would report the same event twice. Missing data and wide
+predictions go into a separate uncertainty value.
+
+The primary channel is also read in short windows and classified by slope and curvature into one
+of six shapes. When a shape repeats, it is matched to an earlier episode and its motif comes back.
+
+Before playback the predictor runs over the earlier history, so it doesn't start from nothing.
 
 ### Voices
 
