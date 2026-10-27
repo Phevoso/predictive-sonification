@@ -1,13 +1,12 @@
 # predictive-sonification
 
 Environmental data played as music in the browser.
+A rework of my thesis project, [generative_music_iot](https://github.com/Phevoso/generative_music_iot) with several improvements.
 
 Each reading is forecast before it arrives. One voice follows what was expected, another reacts
 when the reading departs from the forecast, and patterns that come back return as motifs.
-It runs on Web Audio.
 
-Inspired by [generative_music_iot](https://github.com/Phevoso/generative_music_iot). The `rain~`
-weather noise and `vangex~` synth are ported from its Pure Data patches to AudioWorklets.
+
 
 ## Sources
 
@@ -17,7 +16,7 @@ weather noise and `vangex~` synth are ported from its Pure Data patches to Audio
 - Real-time solar wind at L1, one reading per minute, from
   [NOAA SWPC](https://www.swpc.noaa.gov/products/real-time-solar-wind)
 
-If a feed is down, a bundled snapshot in `assets/data` is used instead.
+If a feed is not available, a snapshot in `assets/data` is used instead.
 
 ## Architecture
 
@@ -51,13 +50,11 @@ Before playback the predictor runs over the earlier history.
 
 ## Running it
 
-Any static server works. `serve.py` disables caching:
-
 ```
 python3 serve.py
 ```
 
-Then open http://localhost:8030/demo/
+Open http://localhost:8030/demo/
 
 ## Layout
 
@@ -69,7 +66,7 @@ src/voices/        pads, piano, bass, noise, clicks
 src/sources/       weather, Mars, solar wind
 src/worklets/      rain~ and vangex~ ports
 src/garden.js      the visual
-demo/              a minimal page
+demo/              run and view it
 ```
 
 ## Credits
@@ -78,4 +75,4 @@ Piano samples: Salamander Grand Piano by Alexander Holm, CC BY 3.0.
 
 ## License
 
-MIT, see `LICENSE`. The piano samples are CC BY 3.0.
+MIT, see `LICENSE`.
