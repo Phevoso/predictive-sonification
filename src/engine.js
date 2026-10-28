@@ -5,6 +5,7 @@
 import { VOICES, applyControls, buildGraph } from './graph.js';
 import { Harmony, brightness, keyMemory } from './music/harmony.js';
 import { ALWAYS, ORCHESTRATED, Orchestra } from './music/orchestra.js';
+import { Readings } from './music/readings.js';
 import { Melody } from './music/melody.js';
 import { PADS, Pads } from './voices/pads.js';
 import { Piano } from './voices/piano.js';
@@ -212,9 +213,20 @@ export class Engine extends EventTarget {
         this.melody = new Melody(this.harmony, this.piano, (type, detail, time) => this.emitAt(type, detail, time));
     }
 
+    // The listener's controls, nudged by the source's other readings
+    mixControls() {
+        const r = this.readings;
+        if (!r) return this.controls;
+        return {
+            space: clamp(this.controls.space + 0.5 * (r.get('space') - 0.5)),
+            texture: clamp(this.controls.texture + 0.6 * (r.get('movement') - 0.5))
+        };
+    }
+
     applyControls() {
         const now = this.ctx.currentTime;
-        applyControls(this.graph, this.controls, now);
+        this.applied = this.mixControls();
+        applyControls(this.graph, this.applied, now);
         this.noise.setTexture(this.controls.texture, now);
     }
 
@@ -232,6 +244,7 @@ export class Engine extends EventTarget {
         this.ranges = source
             ? { primary: range(source.samples, this.channelKey('primary')), texture: range(source.samples, this.channelKey('texture')) }
             : null;
+        this.readings = source ? new Readings(source) : null;
         if (!this.state) {
             this.melody?.reset(now, rng, null);
             return;
@@ -239,6 +252,7 @@ export class Engine extends EventTarget {
         if (this.state.index === undefined) this.state.index = this.indexAfter(this.state.cursor);
         const sample = this.state.source.samples[Math.max(0, this.state.index - 1)];
         if (sample) this.lastObs = this.state.memory.peek(sample);
+        this.readings.observe(this.lastObs, now);
         this.lastSample = sample;
         this.seedTrend();
         // open with the episode the source is already in
@@ -289,7 +303,8 @@ export class Engine extends EventTarget {
         this.departure.level *= Math.exp(-dt / DEPARTURE_TAU);
         if (this.nextChord < now + LOOKAHEAD) this.playChord(Math.max(this.nextChord, now));
         this.arrange(now);
-        this.melody.tick(now, { departure: this.departure, density: this.controls.density, current: this.state.memory.current(), intensity: this.orchestra.intensity });
+        const density = clamp(this.controls.density + 0.5 * (this.readings.get('busy') - 0.5));
+        this.melody.tick(now, { departure: this.departure, density, current: this.state.memory.current(), intensity: this.orchestra.intensity });
         this.noise.update(now, dt, {
             kind: this.state.source.kind,
             sample: this.lastSample,
@@ -299,9 +314,12 @@ export class Engine extends EventTarget {
             presence: this.graph.buses.noise.gain.value
         });
 
-        // the pads open up as the arrangement fills
+        this.readings.tick(dt);
+        this.applyReadings(now);
+
+        // the pads open up as the arrangement fills, and darken under cloud
         const texture = clamp(0.15 + 0.7 * this.normalised('texture') + 0.3 * (this.controls.texture - 0.5) + 0.35 * (this.orchestra.intensity - 0.5));
-        const cutoff = between(PADS.cutoff, texture) * (1 + 0.12 * Math.sin((now * Math.PI) / 23));
+        const cutoff = between(PADS.cutoff, texture) * this.tone * (1 + 0.12 * Math.sin((now * Math.PI) / 23));
         this.graph.pads.frequency.setTargetAtTime(cutoff, now, 1.5);
     }
 
@@ -350,6 +368,10 @@ export class Engine extends EventTarget {
                 this.melody.queue(obs.episode, obs.d ?? 0, obs.sign);
                 this.bass.swell(now);
             }
+            for (const moment of this.readings.observe(obs, now)) {
+                if (moment === 'swell') this.bass.swell(now);
+                this.dispatchEvent(new CustomEvent('moment', { detail: { moment, time: now } }));
+            }
             this.dispatchEvent(new CustomEvent('observation', { detail: obs }));
         }
         if (strongest && strongest.d > this.departure.level) {
@@ -371,7 +393,10 @@ export class Engine extends EventTarget {
             range: this.ranges.primary,
             kind: this.state.source.kind,
             shape: this.state.memory.shape,
-            mood: this.noise.preset
+            mood: this.noise.preset,
+            low: this.readings.get('low'),
+            spread: this.readings.get('spread'),
+            tension: this.readings.get('tension')
         });
         if (chord.keyChange) {
             this.dispatchEvent(new CustomEvent('key', { detail: { offset: this.harmony.keyOffset, step: chord.keyChange } }));
@@ -380,7 +405,8 @@ export class Engine extends EventTarget {
         const length = between(PADS.chord, this.rng()) * lerp(1.3, 0.75, this.controls.density) * lerp(1, 0.8, d);
         const envelope = this.pads.envelope();
         const { notes } = chord;
-        const pans = notes.map((_, i) => lerp(-0.7, 0.7, notes.length > 1 ? i / (notes.length - 1) : 0.5) * (0.6 + 0.4 * this.rng()));
+        const width = lerp(0.6, 1.35, this.readings.get('movement'));
+        const pans = notes.map((_, i) => clamp(lerp(-0.7, 0.7, notes.length > 1 ? i / (notes.length - 1) : 0.5) * (0.6 + 0.4 * this.rng()) * width, -1, 1));
         this.pads.play(notes, time, length + envelope.attack * 0.5, envelope, pans, this.normalised('texture'));
         this.emitAt('note', { instrument: 'pads', chord, notes, velocity: 1, duration: length }, time);
 
@@ -398,6 +424,20 @@ export class Engine extends EventTarget {
         }
         this.arranged = this.dynamics();
         this.dispatchEvent(new CustomEvent('lineup', { detail: { voices: [...voices, ...ALWAYS], solo: !voices.length } }));
+    }
+
+    // Space and movement follow the readings; brightness opens and closes the pads and piano;
+    // pressure sets the bass's weight
+    applyReadings(now) {
+        const r = this.readings;
+        this.tone = 2 ** ((r.get('bright') - r.get('muffle')) * 1.2);
+        this.piano.tone = this.tone;
+        this.bass.weight = lerp(0.85, 1.15, r.get('low'));
+        const mixed = this.mixControls();
+        if (!this.applied || Math.abs(mixed.space - this.applied.space) > 0.01 || Math.abs(mixed.texture - this.applied.texture) > 0.01) {
+            this.applied = mixed;
+            applyControls(this.graph, mixed, now);
+        }
     }
 
     dynamics() {

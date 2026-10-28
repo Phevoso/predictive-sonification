@@ -4,7 +4,7 @@
 // the weather can bend it. The key starts somewhere random each listen and drifts by fifths with
 // the long-term trend of the primary reading.
 
-import { clamp, noteName } from '../util.js';
+import { clamp, lerp, noteName } from '../util.js';
 
 export const TONIC = 38; // D2, the reference keys are counted from
 
@@ -44,7 +44,7 @@ const FAMILIES = {
         storm: 'hungarianMinor'
     },
     mars: { ladder: ['iwato', 'in', 'hirajoshi', 'kumoi', 'lydianDominant'] },
-    solar: { ladder: ['lydianAugmented', 'wholeTone', 'octatonic'] }
+    solar: { ladder: ['lydianAugmented', 'wholeTone', 'octatonic'], tense: 'octatonic' }
 };
 const FLAVOURED = 0.4;    // share of listens on Earth that take the colourful neighbours
 
@@ -75,6 +75,10 @@ const HARMONY = {
     uncertain: 0.4,       // uncertainty that suspends it
     modeHysteresis: 0.6,
     storms: ['storm', 'gale'],
+    tense: 0.6,           // tension from the readings that turns the solar wind octatonic
+    strain: 0.7,          // share of chords tension makes suspended or seventh
+    bassLift: 10,         // semitones the bass range moves across the pressure range
+    spread: { gap: [2, 5], reach: [0, 5] },   // close to wide voicings: smallest gap, extra range
     range: [TONIC + 10, TONIC + 31],
     minGap: 2,
     bassRange: [TONIC - 3, TONIC + 9]
@@ -185,7 +189,7 @@ export class Harmony {
     }
 
     // The source's family picks the scale, the weather may bend it; it changes on phrase starts
-    chooseScale({ kind, brightness, shape, departure, uncertainty, mood }, phraseStart) {
+    chooseScale({ kind, brightness, shape, departure, uncertainty, mood, tension = 0 }, phraseStart) {
         const family = FAMILIES[kind] ?? FAMILIES.weather;
         const rung = brightness * (family.ladder.length - 1);
         if (this.rung === null) this.rung = Math.round(rung);
@@ -199,6 +203,7 @@ export class Harmony {
         else if (family.departure && departure >= HARMONY.tension) scale = family.departure;
         else if (family.mist && uncertainty >= HARMONY.uncertain) scale = family.mist;
         else if (family.still && shape === 'still') scale = family.still[brightness >= 0.5 ? 1 : 0];
+        if (family.tense && tension >= HARMONY.tense) scale = family.tense;
         if (scale === this.scale) return;
 
         // keep the current chord root as near as the new scale allows
@@ -220,9 +225,12 @@ export class Harmony {
         this.trend = this.trend === null ? x : this.trend + (x - this.trend) / tau;
     }
 
-    next({ time, brightness, expected, floor, departure, uncertainty, range, kind, shape, mood }) {
+    next({ time, brightness, expected, floor, departure, uncertainty, range, kind, shape, mood, low = 0.5, spread = null, tension = 0 }) {
         const phraseStart = this.chordCount % 2 === 0;
-        this.chooseScale({ kind, brightness, shape, departure, uncertainty, mood }, phraseStart);
+        this.chooseScale({ kind, brightness, shape, departure, uncertainty, mood, tension }, phraseStart);
+        this.bassShift = Math.round((0.5 - low) * HARMONY.bassLift);
+        this.spread = spread;
+        this.tension = tension;
 
         const slope = expected !== null && this.lastExpected !== null ? expected - this.lastExpected : 0;
         this.lastExpected = expected;
@@ -283,6 +291,7 @@ export class Harmony {
 
     colour(departure, uncertainty) {
         let wish = this.rng() < HARMONY.calmAdd9 ? 'add9' : 'triad';
+        if (this.tension > 0 && this.rng() < this.tension * HARMONY.strain) wish = this.rng() < 0.5 ? 'seventh' : 'sus2';
         if (uncertainty >= HARMONY.uncertain) wish = 'sus2';
         if (departure >= HARMONY.tension) wish = 'seventh';
         return [wish, 'add9', 'triad', 'sus2'].find((colour) => this.consonant(this.degree, colour)) ?? 'fifth';
@@ -303,7 +312,10 @@ export class Harmony {
     // Try every placement of the chord tones in the pad range; keep the one closest to the
     // previous chord, with no crowded voices and no minor seconds or ninths
     voice(degree, colour) {
-        const [lo, hi] = HARMONY.range;
+        const wide = this.spread ?? null;
+        const extra = wide === null ? 0 : Math.round(lerp(...HARMONY.spread.reach, wide));
+        const minGap = wide === null ? HARMONY.minGap : Math.round(lerp(...HARMONY.spread.gap, wide));
+        const [lo, hi] = [HARMONY.range[0] - extra, HARMONY.range[1] + extra];
         const centre = (lo + hi) / 2;
         const options = this.tones(degree, colour).map((step) => {
             const pc = this.pitch(degree + step) % 12;
@@ -318,7 +330,7 @@ export class Harmony {
         const visit = (i, chosen) => {
             if (i === options.length) {
                 const notes = [...chosen].sort((a, b) => a - b);
-                for (let k = 1; k < notes.length; k++) if (notes[k] - notes[k - 1] < HARMONY.minGap) return;
+                for (let k = 1; k < notes.length; k++) if (notes[k] - notes[k - 1] < minGap) return;
                 for (let a = 0; a < notes.length; a++) {
                     for (let b = a + 1; b < notes.length; b++) if ([1, 13].includes(notes[b] - notes[a])) return;
                 }
@@ -343,7 +355,8 @@ export class Harmony {
     bassRoot(degree) {
         const pc = this.pitch(degree) % 12;
         let best = null;
-        for (let midi = HARMONY.bassRange[0]; midi <= HARMONY.bassRange[1]; midi++) {
+        const shift = this.bassShift ?? 0;
+        for (let midi = HARMONY.bassRange[0] + shift; midi <= HARMONY.bassRange[1] + shift; midi++) {
             if (midi % 12 === pc && (best === null || Math.abs(midi - this.bassMidi) < Math.abs(best - this.bassMidi))) best = midi;
         }
         this.bassMidi = best ?? this.pitch(degree);

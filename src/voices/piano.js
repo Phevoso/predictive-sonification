@@ -21,6 +21,7 @@ export class Piano {
         this.ctx = ctx;
         this.output = output;
         this.samples = null;
+        this.tone = 1;        // set from the readings: lower under cloud, higher in hot plasma
     }
 
     get ready() {
@@ -46,7 +47,7 @@ export class Piano {
         const sample = this.samples.reduce((best, s) => (Math.abs(s.midi - midi) < Math.abs(best.midi - midi) ? s : best));
         const cents = (this.rng() * 2 - 1) * PIANO.detune;
         const source = new AudioBufferSourceNode(ctx, { buffer: sample.buffer, playbackRate: 2 ** ((midi - sample.midi + cents / 100) / 12) });
-        const frequency = cutoff ?? between(PIANO.felt, clamp(0.7 * velocity + 0.5 * brightness));
+        const frequency = (cutoff ?? between(PIANO.felt, clamp(0.7 * velocity + 0.5 * brightness))) * this.tone;
         const felt = new BiquadFilterNode(ctx, { type: 'lowpass', frequency, Q: 0.4 });
         const mute = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: frequency * 1.4, Q: 0.5 });
         const env = new GainNode(ctx, { gain: 0 });

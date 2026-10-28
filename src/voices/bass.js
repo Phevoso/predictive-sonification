@@ -7,6 +7,7 @@ const BASS = { level: 0.091, octave: 0.22, glide: 1.4, swell: 1.7 };   // level:
 
 export class Bass {
     constructor(ctx, output) {
+        this.weight = 1;      // set from the readings: heavier under high pressure
         this.env = new GainNode(ctx, { gain: 0 });
         this.env.connect(output);
         this.osc = new OscillatorNode(ctx, { frequency: mtof(TONIC) });
@@ -20,12 +21,12 @@ export class Bass {
     play(midi, time) {
         this.osc.frequency.setTargetAtTime(mtof(midi), time, BASS.glide / 3);
         this.upper.frequency.setTargetAtTime(mtof(midi + 12), time, BASS.glide / 3);
-        this.env.gain.setTargetAtTime(BASS.level, time, 2);
+        this.env.gain.setTargetAtTime(BASS.level * this.weight, time, 2);
     }
 
     swell(time) {
-        this.env.gain.setTargetAtTime(BASS.level * BASS.swell, time, 0.8);
-        this.env.gain.setTargetAtTime(BASS.level, time + 2.5, 2);
+        this.env.gain.setTargetAtTime(BASS.level * this.weight * BASS.swell, time, 0.8);
+        this.env.gain.setTargetAtTime(BASS.level * this.weight, time + 2.5, 2);
     }
 
     fade(time, tau) {
