@@ -10,9 +10,7 @@ const REPLAY_DAYS = 7;
 export const CITIES = [
     { id: 'reykjavik', name: 'Reykjavík', latitude: 64.1466, longitude: -21.9426 },
     { id: 'kyoto', name: 'Kyoto', latitude: 35.0116, longitude: 135.7681 },
-    { id: 'athens', name: 'Athens', latitude: 37.9838, longitude: 23.7275 },
-    { id: 'wellington', name: 'Wellington', latitude: -41.2866, longitude: 174.7756 },
-    { id: 'longyearbyen', name: 'Longyearbyen', latitude: 78.2232, longitude: 15.6267 }
+    { id: 'athens', name: 'Athens', latitude: 37.9838, longitude: 23.7275 }
 ];
 
 const CHANNELS = [
