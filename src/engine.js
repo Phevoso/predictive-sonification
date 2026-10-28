@@ -171,7 +171,7 @@ export class Engine extends EventTarget {
         clearTimeout(this.switchTimer);
         this.graph.mix.gain.setTargetAtTime(0, now, 0.6);
         this.bass.fade(now, 0.6);
-        this.clicks.play(now + 0.05, 0.9, 2600, 0, this.graph.direct);
+        this.clicks.play(now + 0.05, 0.9, 1300, 0, this.graph.direct);
         this.switchTimer = setTimeout(() => {
             this.state = state;
             this.reset(this.ctx.currentTime);
@@ -362,7 +362,7 @@ export class Engine extends EventTarget {
         }
         if (this.orchestra.has('clicks') && now - this.lastClick >= CLICK_GAP) {
             const d = strongest?.d ?? 0;
-            this.clicks.play(now + 0.05, lerp(0.5, 1, d), 3000 + 1500 * this.rng(), lerp(-0.5, 0.5, this.rng()));
+            this.clicks.play(now + 0.05, lerp(0.5, 1, d), 1500 + 750 * this.rng(), lerp(-0.5, 0.5, this.rng()));
             this.lastClick = now;
             this.emitAt('note', { instrument: 'clicks', dataTime: this.lastObs.time, velocity: d }, now + 0.05);
         }
@@ -396,8 +396,8 @@ export class Engine extends EventTarget {
             this.bass.play(chord.root, time);
             this.emitAt('note', { instrument: 'bass', midi: chord.root, velocity: 1, duration: length * 2 }, time);
             if (this.harmony.chordCount > 1 && this.orchestra.has('clicks')) {
-                this.clicks.play(time, 0.5, 2200, -0.2);
-                this.clicks.play(time + 0.11, 0.35, 2600, 0.2);
+                this.clicks.play(time, 0.5, 1100, -0.2);
+                this.clicks.play(time + 0.11, 0.35, 1300, 0.2);
             }
         }
         this.nextChord = time + length;

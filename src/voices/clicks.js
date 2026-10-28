@@ -1,8 +1,11 @@
-// A few milliseconds of band-passed noise
+// A few milliseconds of band-passed noise. It fades in rather than starting at full level, which
+// popped on speakers.
 
 import { makeNoiseBuffer } from '../util.js';
 
 const LEVEL = 1.34;   // trim to REFERENCE, by peak
+const ATTACK = 0.004;
+const DECAY = 0.03;
 
 export class Clicks {
     constructor(ctx, output) {
@@ -15,11 +18,12 @@ export class Clicks {
         const source = new AudioBufferSourceNode(this.ctx, { buffer: this.buffer });
         const band = new BiquadFilterNode(this.ctx, { type: 'bandpass', frequency, Q: 1.6 });
         const env = new GainNode(this.ctx, { gain: 0 });
-        env.gain.setValueAtTime(LEVEL * velocity, time);
-        env.gain.exponentialRampToValueAtTime(0.0001, time + 0.012);
+        env.gain.setValueAtTime(0, time);
+        env.gain.linearRampToValueAtTime(LEVEL * velocity, time + ATTACK);
+        env.gain.exponentialRampToValueAtTime(0.0001, time + ATTACK + DECAY);
         const panner = new StereoPannerNode(this.ctx, { pan });
         source.connect(band).connect(env).connect(panner).connect(output);
-        source.start(time, this.rng() * 0.9, 0.03);
+        source.start(time, this.rng() * 0.9, 0.05);
         source.onended = () => panner.disconnect();
     }
 }

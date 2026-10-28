@@ -81,7 +81,7 @@ const TESTS = [
         setup: async (ctx) => {
             const voice = new Clicks(ctx, ctx.destination);
             voice.rng = () => 0;
-            return () => voice.play(0.5, 0.75, 3000);
+            return () => voice.play(0.5, 0.75, 1500);
         }
     }
 ];
