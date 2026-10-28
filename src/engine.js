@@ -10,7 +10,6 @@ import { PADS, Pads } from './voices/pads.js';
 import { Piano } from './voices/piano.js';
 import { Bass } from './voices/bass.js';
 import { WeatherNoise } from './voices/noise.js';
-import { Clicks } from './voices/clicks.js';
 import { between, clamp, hash, lerp, mulberry32, rms } from './util.js';
 
 const TICK_MS = 200;
@@ -19,7 +18,6 @@ const LEVEL = 0.45;           // leaves room for the piano's attacks
 const START_FADE = 3;
 const SWITCH_FADE = 2.6;
 const DEPARTURE_TAU = 6;      // seconds a departure lingers in the music
-const CLICK_GAP = 1.5;
 const FADE = { in: 2.5, out: 4 };
 
 // Freezes a param where it is now. Firefox has no cancelAndHoldAtTime, so it holds the current value.
@@ -159,7 +157,7 @@ export class Engine extends EventTarget {
         this.dispatchEvent(new Event('statechange'));
     }
 
-    // While playing, the old source fades out under a click before the new one comes in
+    // While playing, the old source fades out before the new one comes in
     setSource(state) {
         if (!this.state || !this.running || !this.graph) {
             this.state = state;
@@ -171,7 +169,6 @@ export class Engine extends EventTarget {
         clearTimeout(this.switchTimer);
         this.graph.mix.gain.setTargetAtTime(0, now, 0.6);
         this.bass.fade(now, 0.6);
-        this.clicks.play(now + 0.05, 0.9, 1300, 0, this.graph.direct);
         this.switchTimer = setTimeout(() => {
             this.state = state;
             this.reset(this.ctx.currentTime);
@@ -214,7 +211,6 @@ export class Engine extends EventTarget {
         this.piano = new Piano(this.ctx, g.piano);
         this.bass = new Bass(this.ctx, g.faders.bass);
         this.noise = new WeatherNoise(this.ctx, g.faders.noise);
-        this.clicks = new Clicks(this.ctx, g.faders.clicks);
         this.melody = new Melody(this.harmony, this.piano, (type, detail, time) => this.emitAt(type, detail, time));
     }
 
@@ -230,10 +226,9 @@ export class Engine extends EventTarget {
         this.rng = rng;
         this.harmony.reset(now, rng);
         this.orchestra.reset(now, rng);
-        for (const voice of [this.pads, this.piano, this.noise, this.clicks]) if (voice) voice.rng = rng;
+        for (const voice of [this.pads, this.piano, this.noise]) if (voice) voice.rng = rng;
         this.nextChord = now + 0.6;
         this.departure = { level: 0, sign: 0, lead: null };
-        this.lastClick = now + START_FADE - CLICK_GAP;   // no clicks before the pads are in
         this.lastObs = null;
         this.lastSample = null;
         this.ranges = source
@@ -360,12 +355,6 @@ export class Engine extends EventTarget {
         if (strongest && strongest.d > this.departure.level) {
             this.departure = { level: strongest.d, sign: strongest.sign, lead: strongest.lead };
         }
-        if (this.orchestra.has('clicks') && now - this.lastClick >= CLICK_GAP) {
-            const d = strongest?.d ?? 0;
-            this.clicks.play(now + 0.05, lerp(0.5, 1, d), 1500 + 750 * this.rng(), lerp(-0.5, 0.5, this.rng()));
-            this.lastClick = now;
-            this.emitAt('note', { instrument: 'clicks', dataTime: this.lastObs.time, velocity: d }, now + 0.05);
-        }
     }
 
     playChord(time) {
@@ -395,10 +384,6 @@ export class Engine extends EventTarget {
         if (chord.phraseStart) {
             this.bass.play(chord.root, time);
             this.emitAt('note', { instrument: 'bass', midi: chord.root, velocity: 1, duration: length * 2 }, time);
-            if (this.harmony.chordCount > 1 && this.orchestra.has('clicks')) {
-                this.clicks.play(time, 0.5, 1100, -0.2);
-                this.clicks.play(time + 0.11, 0.35, 1300, 0.2);
-            }
         }
         this.nextChord = time + length;
     }

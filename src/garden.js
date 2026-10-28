@@ -30,7 +30,7 @@ export class Garden {
         this.stones = [];
         this.sand = [];
         this.ticks = [];
-        this.levels = { pads: 0, piano: 0, bass: 0, noise: 0, clicks: 0 };
+        this.levels = { pads: 0, piano: 0, bass: 0, noise: 0 };
         this.wavelength = null;
         this.lastSand = 0;
         this.stoneSeed = 1;

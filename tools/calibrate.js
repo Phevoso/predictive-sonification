@@ -5,7 +5,6 @@ import { REFERENCE } from '../src/graph.js';
 import { Pads, PADS } from '../src/voices/pads.js';
 import { Piano } from '../src/voices/piano.js';
 import { Bass } from '../src/voices/bass.js';
-import { Clicks } from '../src/voices/clicks.js';
 
 const RATE = 48000;
 const db = (x) => 20 * Math.log10(x);
@@ -53,7 +52,7 @@ const pads = (instrument) => async (ctx) => {
     return () => voice.play([50, 57, 62, 66], 0.5, 10, { attack: 4, release: 8 }, [-0.5, -0.2, 0.2, 0.5], 0.5);
 };
 
-// Sustained voices by RMS over their body, the piano over its first seconds, clicks by peak
+// Sustained voices by RMS over their body, the piano over its first seconds
 // against a 12 dB crest
 const TESTS = [
     { name: 'pads (vangex)', seconds: 14, setup: pads('vangex'), window: [5, 11], by: 'rms' },
@@ -74,14 +73,6 @@ const TESTS = [
         setup: async (ctx) => {
             const voice = new Bass(ctx, ctx.destination);
             return () => voice.play(38, 0.5);
-        }
-    },
-    {
-        name: 'clicks', seconds: 1, window: [0.45, 0.6], by: 'peak',
-        setup: async (ctx) => {
-            const voice = new Clicks(ctx, ctx.destination);
-            voice.rng = () => 0;
-            return () => voice.play(0.5, 0.75, 1500);
         }
     }
 ];

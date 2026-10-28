@@ -46,7 +46,7 @@ Before playback the predictor runs over the earlier history.
 - The piano plays the motifs of recurring shapes and, on strong departures, single notes.
 - The weather noise always plays, a slow brown-noise bed that opens with the wind. The rain~ port
   is still there behind a switch.
-- Bass and clicks come and go with the shape of the data.
+- The bass comes and goes with the shape of the data.
 - The key starts somewhere random and drifts with the long-term trend.
 
 ## Running it
@@ -63,7 +63,7 @@ Open http://localhost:8030/demo/
 src/engine.js      transport and scheduling
 src/memory.js      forecasting, departures, episodes
 src/music/         harmony, orchestration, melody
-src/voices/        pads, piano, bass, noise, clicks
+src/voices/        pads, piano, bass, noise
 src/sources/       weather, Mars, solar wind
 src/worklets/      rain~ and vangex~ ports
 src/garden.js      the visual

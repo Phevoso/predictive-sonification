@@ -2,19 +2,19 @@
 
 import { lerp, makeImpulse } from './util.js';
 
-export const VOICES = ['pads', 'piano', 'bass', 'noise', 'clicks'];
+export const VOICES = ['pads', 'piano', 'bass', 'noise'];
 
 // Each voice is trimmed so a typical note or chord sits at REFERENCE (dBFS RMS) on its own, which
 // tools/calibrate.html checks. MIX is the balance between them, in dB.
 export const REFERENCE = -24;
-const MIX = { pads: -3.5, piano: -3.5, bass: 7, noise: 6, clicks: -13 };
+const MIX = { pads: -3.5, piano: -3.5, bass: 7, noise: 6 };
 const fromDb = (db) => 10 ** (db / 20);
 
 const FX = {
     reverb: { seconds: 7, damping: 0.55 },
-    sends: { pads: 0.55, piano: 0.7, bass: 0.06, noise: 0.8, clicks: 0.2 },
+    sends: { pads: 0.55, piano: 0.7, bass: 0.06, noise: 0.8 },
     dry: { piano: 0.4 },
-    delay: { time: 0.62, feedback: 0.42, tone: 2200, sends: { piano: 0.35, clicks: 0.3, pads: 0.08 } },
+    delay: { time: 0.62, feedback: 0.42, tone: 2200, sends: { piano: 0.35, pads: 0.08 } },
     hall: { seconds: 12, damping: 0.85, predelay: 0.045, send: 1.2 },   // piano only
     wow: { rate: 0.27, drift: 0.07, depth: 0.0018 }
 };
@@ -44,11 +44,9 @@ export function buildGraph(ctx) {
     const clipper = new WaveShaperNode(ctx, { curve: safetyCurve(), oversample: '4x' });
     g.master.connect(g.limiter).connect(new GainNode(ctx, { gain: 0.5 })).connect(clipper).connect(g.analyser).connect(ctx.destination);
 
-    // `mix` fades as one when the source changes; `direct` carries the switch click past it
+    // `mix` fades as one when the source changes
     g.mix = new GainNode(ctx);
     g.mix.connect(g.master);
-    g.direct = new GainNode(ctx);
-    g.direct.connect(g.master);
 
     // tape wobble on pads and piano
     g.wow = new DelayNode(ctx, { maxDelayTime: 0.1, delayTime: 0.018 });

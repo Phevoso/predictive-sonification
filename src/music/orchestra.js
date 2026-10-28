@@ -1,5 +1,5 @@
 // Which voices play besides the piano and the weather noise. The pads carry the forecast and stay
-// in except on a hollow shape; bass and clicks follow the episode shape. The line-up holds for a
+// in except on a hollow shape; the bass follows the episode shape. The line-up holds for a
 // while, and every few minutes the piano is left on its own.
 
 import { between } from '../util.js';
@@ -7,11 +7,11 @@ import { between } from '../util.js';
 const ORCHESTRA = {
     lineups: {
         still: ['pads'],
-        rising: ['pads', 'bass', 'clicks'],
-        falling: ['pads', 'bass', 'clicks'],
-        swell: ['pads', 'bass', 'clicks'],
+        rising: ['pads', 'bass'],
+        falling: ['pads', 'bass'],
+        swell: ['pads', 'bass'],
         hollow: [],
-        restless: ['pads', 'bass', 'clicks']
+        restless: ['pads', 'bass']
     },
     opening: ['pads'],
     departure: 0.9,       // a departure this strong adds the bass
@@ -20,7 +20,7 @@ const ORCHESTRA = {
     solo: { every: [150, 300], length: [14, 28] }
 };
 
-export const ORCHESTRATED = ['pads', 'bass', 'clicks'];
+export const ORCHESTRATED = ['pads', 'bass'];
 export const ALWAYS = ['piano', 'noise'];
 
 export class Orchestra {
