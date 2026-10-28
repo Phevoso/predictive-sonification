@@ -1,5 +1,6 @@
 // Port of vangex~.pd with the envelope from vangex_tape_looper.pd. Voices run continuously as in
-// the patch; a note retunes a voice and opens its envelope at the given context time.
+// the patch while they sound, and pause while silent to save the audio thread; a note retunes a
+// voice and opens its envelope at the given context time.
 // The six loopers go through eq_filters~ (fi.resonator), which filter_ramp sweeps on every
 // looper trigger.
 
@@ -8,6 +9,7 @@ const BUFFER_SECONDS = 1;  // delwrite~ $0-vang 1000
 const VOICES = 7;          // six tape loops plus one lead voice for phrases
 const LOOPERS = 6;
 const SMOOTHING = 0.05;    // seconds of glide on per-second gain / harmonic updates
+const PAN_GLIDE = 0.03;    // seconds; a reused voice may still be sounding, so pan never jumps
 
 // filter_ramp: towards 1500 Hz over 1.5 s, turning back to 200 Hz after 100 ms.
 // Q follows the frequency, 200..2000 Hz -> 0.7..6.
@@ -32,8 +34,9 @@ class Voice {
         this.outLop = 0;
         this.hip = 0;
         this.period = 0;   // ms, smoothed by lop~ 10
-        this.midi = 48;
-        this.pan = 0;
+        this.tune(48);
+        // equal-power pan gains, gliding towards the note's
+        this.panL = this.panR = this.panLTarget = this.panRTarget = Math.SQRT1_2;
         // Envelope: Pd's [line] towards a target over a ramp time
         this.env = 0;
         this.envTarget = 0;
@@ -46,19 +49,16 @@ class Voice {
         this.harmonicTarget = 1;
     }
 
-    // Pd's vd~ 4-point interpolation, `delay` in samples. Called before this sample is written,
-    // so x[n - k] sits k - 1 places behind the last write.
-    read(delay) {
-        const length = this.buffer.length;
-        const whole = Math.floor(delay);
-        const frac = delay - whole;
-        const at = (k) => this.buffer[(this.write + 1 - k + length) % length];
-        const a = at(whole - 1);
-        const b = at(whole);
-        const c = at(whole + 1);
-        const d = at(whole + 2);
-        const cminusb = c - b;
-        return b + frac * (cminusb - 0.1666667 * (1 - frac) * ((d - a - 3 * cminusb) * frac + (d + 2 * a - 3 * b)));
+    tune(midi) {
+        this.midi = midi;
+        this.frequency = mtof(midi);
+        this.increment = this.frequency / sampleRate;
+        this.periodTarget = 1000 / this.frequency;
+    }
+
+    panTo(pan) {
+        this.panLTarget = Math.cos((pan + 1) * Math.PI / 4);
+        this.panRTarget = Math.sin((pan + 1) * Math.PI / 4);
     }
 
     rampTo(target, seconds) {
@@ -84,7 +84,6 @@ class Vangex extends AudioWorkletProcessor {
         // filter_ramp state: a [line] from `from` to `to` starting at `start`
         this.ramp = { from: RAMP.rest, to: RAMP.rest, start: 0, time: RAMP.time, turnAt: Infinity };
         this.filter = [0, 1].map(() => ({ x1: 0, x2: 0, y1: 0, y2: 0 }));
-        this.reportAt = 0;
         this.port.onmessage = ({ data }) => {
             if (data.type === 'params') {
                 data.gain.forEach((g, i) => { this.voices[i].gainTarget = g; });
@@ -109,8 +108,8 @@ class Vangex extends AudioWorkletProcessor {
     // A tape-looper trigger: new note, envelope up over `attack`, held, then down over `release`
     start(note, now) {
         const voice = this.voices[note.voice];
-        voice.midi = note.midi;
-        voice.pan = note.pan;
+        voice.tune(note.midi);
+        voice.panTo(note.pan);
         voice.release = note.release;
         voice.rampTo(note.peak, note.attack);
         voice.releaseAt = note.time + note.hold;
@@ -121,7 +120,7 @@ class Vangex extends AudioWorkletProcessor {
     }
 
     process(inputs, outputs) {
-        const [left, right] = outputs[0];
+        const left = outputs[0][0], right = outputs[0][1];
         const frames = left.length;
         const oscCoef = lopCoef(1000);
         const fbCoef = lopCoef(4000);
@@ -131,92 +130,119 @@ class Vangex extends AudioWorkletProcessor {
         const hipNormal = 0.5 * (1 + hipCoef);
         const msToSamples = sampleRate / 1000;
         const glide = 1 - Math.exp(-frames / (SMOOTHING * sampleRate));
+        const panCoef = 1 - Math.exp(-1 / (PAN_GLIDE * sampleRate));
 
         const blockStart = currentFrame / sampleRate;
+        const blockEnd = (currentFrame + frames) / sampleRate;
+        // Notes land on the block they fall in, at most one block (under 3 ms) early
+        while (this.queue.length && this.queue[0].time < blockEnd) this.start(this.queue.shift(), blockStart);
         if (blockStart >= this.ramp.turnAt) {
             this.rampTo(RAMP.rest, blockStart);
             this.ramp.turnAt = Infinity;
         }
         const resonance = this.rampValue(blockStart);
         const k = resonatorCoefficients(resonance, rampQ(resonance));
-        if (blockStart >= this.reportAt) {
-            this.port.postMessage({ type: 'resonator', frequency: resonance, q: rampQ(resonance) });
-            this.reportAt = blockStart + 0.1;
-        }
 
-        for (const v of this.voices) {
+        if (!this.mix || this.mix[0].length !== frames) this.mix = [0, 1, 2, 3].map(() => new Float32Array(frames));
+        const loopL = this.mix[0], loopR = this.mix[1], leadL = this.mix[2], leadR = this.mix[3];
+        for (let m = 0; m < 4; m++) this.mix[m].fill(0);
+
+        // Each voice runs a whole block with its state in locals, which the audio thread
+        // handles far faster than touching the voice's fields on every sample
+        for (let n = 0; n < VOICES; n++) {
+            const v = this.voices[n];
             v.gain += glide * (v.gainTarget - v.gain);
             v.harmonic += glide * (v.harmonicTarget - v.harmonic);
-        }
+            if (v.releaseAt < blockEnd) {
+                v.rampTo(0, v.release);
+                v.releaseAt = Infinity;
+            }
+            // A silent voice is skipped until its next note; it picks up where it stopped
+            if (v.env === 0 && v.envStep === 0) continue;
 
-        for (let i = 0; i < frames; i++) {
-            const now = (currentFrame + i) / sampleRate;
-            while (this.queue.length && this.queue[0].time <= now) this.start(this.queue.shift(), now);
+            const outL = n < LOOPERS ? loopL : leadL;
+            const outR = n < LOOPERS ? loopR : leadR;
+            const gain = v.gain;
+            const level = LOOPER_LEVEL * MIX * gain;
+            const delayScale = 2 * (1 + 0.01 * v.harmonic) * msToSamples;
+            const buffer = v.buffer;
+            const length = buffer.length;
+            const longest = length - 4;
+            const { increment, periodTarget, envTarget, panLTarget, panRTarget } = v;
+            let { env, envStep, phase, integrator, oscLop, period, feedbackLop, write, hip, outLop, panL, panR } = v;
 
-            let sumL = 0;
-            let sumR = 0;
-            let leadL = 0;
-            let leadR = 0;
-            for (let n = 0; n < VOICES; n++) {
-                const v = this.voices[n];
-                const harmonicScale = 1 + 0.01 * v.harmonic;
-                const level = LOOPER_LEVEL * MIX * v.gain;
-                if (now >= v.releaseAt) {
-                    v.rampTo(0, v.release);
-                    v.releaseAt = Infinity;
-                }
-                if (v.envStep !== 0) {
-                    v.env += v.envStep;
-                    if ((v.envStep > 0 && v.env >= v.envTarget) || (v.envStep < 0 && v.env <= v.envTarget)) {
-                        v.env = v.envTarget;
-                        v.envStep = 0;
+            for (let i = 0; i < frames; i++) {
+                if (envStep !== 0) {
+                    env += envStep;
+                    if ((envStep > 0 && env >= envTarget) || (envStep < 0 && env <= envTarget)) {
+                        env = envTarget;
+                        envStep = 0;
                     }
                 }
 
                 // phasor~ -> rpole~ with coefficient [phasor >= 0.1]: an integrator that resets
                 // during the first tenth of each cycle
-                const freq = mtof(v.midi);
-                v.phase += freq / sampleRate;
-                v.phase -= Math.floor(v.phase);
-                v.integrator = v.phase + (v.phase >= 0.1 ? v.integrator : 0);
-                v.oscLop += oscCoef * (v.integrator * 0.0001 - v.oscLop);
+                phase += increment;
+                if (phase >= 1) phase -= 1;
+                integrator = phase + (phase >= 0.1 ? integrator : 0);
+                oscLop += oscCoef * (integrator * 0.0001 - oscLop);
 
                 // Delay tuned to two periods (lop~ 10 glides it), stretched by the harmonic modulation
-                v.period += periodCoef * (1000 / freq - v.period);
-                const delay = Math.min(v.buffer.length - 4, Math.max(1.00001, 2 * v.period * harmonicScale * msToSamples));
-                const delayed = 0.85 * v.read(delay);
+                period += periodCoef * (periodTarget - period);
+                let delay = period * delayScale;
+                if (delay > longest) delay = longest;
+                else if (delay < 1.00001) delay = 1.00001;
+
+                // Pd's vd~ 4-point interpolation. Read before this sample is written, so x[n - k]
+                // sits k - 1 places behind the last write; indices wrap without a modulo.
+                const whole = Math.floor(delay);
+                const frac = delay - whole;
+                let j = write + 2 - whole;
+                if (j >= length) j -= length;
+                else if (j < 0) j += length;
+                const a = buffer[j];
+                j = j === 0 ? length - 1 : j - 1;
+                const b = buffer[j];
+                j = j === 0 ? length - 1 : j - 1;
+                const c = buffer[j];
+                j = j === 0 ? length - 1 : j - 1;
+                const d = buffer[j];
+                const cminusb = c - b;
+                const delayed = 0.85 * (b + frac * (cminusb - 0.1666667 * (1 - frac) * ((d - a - 3 * cminusb) * frac + (d + 2 * a - 3 * b))));
 
                 // Feedback through lop~ 4000, summed with the oscillator into delwrite~
-                v.feedbackLop += fbCoef * (delayed - v.feedbackLop);
-                v.write = (v.write + 1) % v.buffer.length;
-                v.buffer[v.write] = v.oscLop * v.gain + v.feedbackLop;
+                feedbackLop += fbCoef * (delayed - feedbackLop);
+                write = write + 1 === length ? 0 : write + 1;
+                buffer[write] = oscLop * gain + feedbackLop;
 
                 // hip~ 1 -> tanh~ -> lop~ 4000
-                const hipNew = delayed + hipCoef * v.hip;
-                const hipOut = hipNormal * (hipNew - v.hip);
-                v.hip = hipNew;
-                v.outLop += outCoef * (Math.tanh(hipOut) - v.outLop);
+                const hipNew = delayed + hipCoef * hip;
+                const hipOut = hipNormal * (hipNew - hip);
+                hip = hipNew;
+                outLop += outCoef * (Math.tanh(hipOut) - outLop);
 
-                const sample = v.outLop * v.env * level;
-                const l = sample * Math.cos((v.pan + 1) * Math.PI / 4);
-                const r = sample * Math.sin((v.pan + 1) * Math.PI / 4);
-                if (n < LOOPERS) {
-                    sumL += l;
-                    sumR += r;
-                } else {
-                    leadL += l;
-                    leadR += r;
-                }
+                const sample = outLop * env * level;
+                panL += panCoef * (panLTarget - panL);
+                panR += panCoef * (panRTarget - panR);
+                outL[i] += sample * panL;
+                outR[i] += sample * panR;
             }
+            v.env = env; v.envStep = envStep; v.phase = phase; v.integrator = integrator; v.oscLop = oscLop;
+            v.period = period; v.feedbackLop = feedbackLop; v.write = write; v.hip = hip; v.outLop = outLop;
+            v.panL = panL; v.panR = panR;
+        }
 
-            // The loopers through the swept resonator; the lead voice joins after it
-            const [fl, fr] = this.filter;
+        // The loopers through the swept resonator; the lead voice joins after it
+        const fl = this.filter[0], fr = this.filter[1];
+        for (let i = 0; i < frames; i++) {
+            const sumL = loopL[i];
+            const sumR = loopR[i];
             const yl = k.b0 * sumL + k.b2 * fl.x2 - k.a1 * fl.y1 - k.a2 * fl.y2;
             fl.x2 = fl.x1; fl.x1 = sumL; fl.y2 = fl.y1; fl.y1 = yl;
             const yr = k.b0 * sumR + k.b2 * fr.x2 - k.a1 * fr.y1 - k.a2 * fr.y2;
             fr.x2 = fr.x1; fr.x1 = sumR; fr.y2 = fr.y1; fr.y1 = yr;
-            left[i] = yl + leadL;
-            right[i] = yr + leadR;
+            left[i] = yl + leadL[i];
+            right[i] = yr + leadR[i];
         }
         return true;
     }
