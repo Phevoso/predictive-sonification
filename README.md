@@ -6,7 +6,7 @@ A rework of my thesis project, [generative_music_iot](https://github.com/Phevoso
 Each reading is forecast before it arrives. One voice follows what was expected, another reacts
 when the reading departs from the forecast, and patterns that come back return as motifs.
 
-
+You can listen to it at https://phevosrinis.com/listen/.
 
 ## Sources
 
