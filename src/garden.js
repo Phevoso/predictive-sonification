@@ -49,6 +49,8 @@ export class Garden {
             shu: read('--shu', '#C23B22'),
             ground: read('--white', '#FFF')
         };
+        // the page can make the sand stronger, as Mars does so its dust's colour shows
+        this.sandAlpha = Number(read('--sand-alpha', 1));
     }
 
     // Sized from the parent and capped, so a missing stylesheet can't make the canvas grow every frame
@@ -176,7 +178,7 @@ export class Garden {
             const age = now - grain.born;
             if (age > grain.life || age < 0) continue;
             const fade = 1 - age / grain.life;
-            ctx.globalAlpha = grain.alpha * fade;
+            ctx.globalAlpha = Math.min(1, grain.alpha * this.sandAlpha) * fade;
             ctx.fillStyle = c.sand;
             ctx.beginPath();
             ctx.arc(grain.x + grain.vx * age, grain.y + grain.vy * age, grain.size, 0, Math.PI * 2);

@@ -37,7 +37,8 @@ const NOISE = {
     // No compressor: in Web Audio one adds makeup gain and pumps the low end
     loudness: 0.004,                  // RMS after the lowpass that louder weather is held to
     level: 15.8,                      // trim: puts that ceiling at REFERENCE
-    sand: 9                           // garden grains per second at full drop amount
+    sand: 9,                          // garden grains per second at full drop amount
+    dust: [1.5, 8]                    // Mars grains per second, coldest sol to warmest
 };
 
 const CALM = {
@@ -178,7 +179,9 @@ export class WeatherNoise {
         const level = rms(this.meter, this.meterBuffer);
         this.guard.gain.setTargetAtTime(Math.min(1, NOISE.loudness / Math.max(level, 1e-6)), now, 1.5);
 
-        this.sandCarry += NOISE.sand * (sliders.dropAmount / 127) * presence * dt;
+        // No rain on Mars: its dust follows the temperature instead, as warm sols stir up more of it
+        const sand = kind === 'mars' ? between(NOISE.dust, relative) : NOISE.sand * (sliders.dropAmount / 127);
+        this.sandCarry += sand * presence * dt;
         while (this.sandCarry >= 1) {
             this.sandCarry -= 1;
             this.sand.push({ id: ++this.sandCount, time: now, pan: this.rng() * 2 - 1, length: 0.1 + 0.2 * this.rng(), u: uncertainty });
