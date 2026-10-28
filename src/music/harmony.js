@@ -1,21 +1,55 @@
-// Chords, modes and key. Each chord moves from the last by a third, fourth or step depending on
+// Chords, scales and key. Each chord moves from the last by a third, fourth or step depending on
 // where the forecast is heading, is coloured by the data, and is voiced to move the pads as
-// little as possible. The key starts somewhere random each listen and drifts by fifths with
+// little as possible. Each source has its own family of scales; the data picks one, and on Earth
+// the weather can bend it. The key starts somewhere random each listen and drifts by fifths with
 // the long-term trend of the primary reading.
 
 import { clamp, noteName } from '../util.js';
 
 export const TONIC = 38; // D2, the reference keys are counted from
 
-// darkest to brightest
-export const MODES = [
-    { name: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
-    { name: 'Aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
-    { name: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
-    { name: 'Mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
-    { name: 'Ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
-    { name: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] }
-];
+export const SCALES = {
+    phrygian: { name: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
+    aeolian: { name: 'Aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
+    dorian: { name: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
+    mixolydian: { name: 'Mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
+    ionian: { name: 'Ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
+    lydian: { name: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
+    harmonicMinor: { name: 'Harmonic minor', steps: [0, 2, 3, 5, 7, 8, 11] },
+    melodicMinor: { name: 'Melodic minor', steps: [0, 2, 3, 5, 7, 9, 11] },
+    phrygianDominant: { name: 'Phrygian dominant', steps: [0, 1, 4, 5, 7, 8, 10] },
+    lydianDominant: { name: 'Lydian dominant', steps: [0, 2, 4, 6, 7, 9, 10] },
+    hungarianMinor: { name: 'Hungarian minor', steps: [0, 2, 3, 6, 7, 8, 11] },
+    lydianAugmented: { name: 'Lydian augmented', steps: [0, 2, 4, 6, 8, 9, 11] },
+    majorPentatonic: { name: 'Major pentatonic', steps: [0, 2, 4, 7, 9] },
+    minorPentatonic: { name: 'Minor pentatonic', steps: [0, 3, 5, 7, 10] },
+    in: { name: 'In', steps: [0, 1, 5, 7, 8] },
+    hirajoshi: { name: 'Hirajoshi', steps: [0, 2, 3, 7, 8] },
+    kumoi: { name: 'Kumoi', steps: [0, 2, 3, 7, 9] },
+    iwato: { name: 'Iwato', steps: [0, 1, 5, 6, 10] },
+    wholeTone: { name: 'Whole tone', steps: [0, 2, 4, 6, 8, 10] },
+    octatonic: { name: 'Octatonic', steps: [0, 1, 3, 4, 6, 7, 9, 10] }
+};
+
+// Each source's scales, darkest (or calmest) to brightest. Some listens on Earth take a more
+// colourful neighbour of each mode; the weather can bend the scale for a phrase: still air to a
+// pentatonic, mist to whole tone, a strong departure to harmonic minor, a storm to Hungarian minor.
+const FAMILIES = {
+    weather: {
+        ladder: ['phrygian', 'aeolian', 'dorian', 'mixolydian', 'ionian', 'lydian'],
+        flavours: { phrygian: 'phrygianDominant', aeolian: 'harmonicMinor', dorian: 'melodicMinor', mixolydian: 'lydianDominant', lydian: 'lydianAugmented' },
+        still: ['minorPentatonic', 'majorPentatonic'],
+        mist: 'wholeTone',
+        departure: 'harmonicMinor',
+        storm: 'hungarianMinor'
+    },
+    mars: { ladder: ['iwato', 'in', 'hirajoshi', 'kumoi', 'lydianDominant'] },
+    solar: { ladder: ['lydianAugmented', 'wholeTone', 'octatonic'] }
+};
+const FLAVOURED = 0.4;    // share of listens on Earth that take the colourful neighbours
+
+// A move between chords, in steps of a seven-note scale, as the interval it aims for elsewhere
+const MOVE_SEMITONES = { 1: 2, 2: 3.5, 3: 5, 4: 7, 5: 8.5, 6: 10.5 };
 
 const HARMONY = {
     // [scale steps, weight]
@@ -26,17 +60,21 @@ const HARMONY = {
     },
     homePull: 5,          // chords away from the tonic before going home gets weight
     home: 4,
+    // semitones above the root each colour aims for; each lands on the nearest scale tone, so a
+    // pentatonic gets open fourths and fifths, whole tone and octatonic their own chords
     colours: {
-        fifth: [0, 4],
-        triad: [0, 2, 4, 7],
-        add9: [0, 2, 4, 8],
-        seventh: [0, 2, 4, 6],
-        sus2: [0, 1, 4, 7]
+        fifth: [0, 7],
+        triad: [0, 3.5, 7, 12],
+        add9: [0, 3.5, 7, 14],
+        seventh: [0, 3.5, 7, 10.5],
+        sus2: [0, 2, 7, 12]
     },
+    reach: 1.5,           // semitones a chord tone may land from its aim
     calmAdd9: 0.6,
     tension: 0.8,         // departure that turns a chord into a seventh
     uncertain: 0.4,       // uncertainty that suspends it
     modeHysteresis: 0.6,
+    storms: ['storm', 'gale'],
     range: [TONIC + 10, TONIC + 31],
     minGap: 2,
     bassRange: [TONIC - 3, TONIC + 9]
@@ -74,7 +112,9 @@ export const keyMemory = (kind) => KEY.tau[kind] ?? 24;
 export class Harmony {
     reset(now, rng) {
         this.rng = rng;
-        this.modeIndex = null;
+        this.rung = null;
+        this.scale = null;
+        this.flavoured = rng() < FLAVOURED;
         this.degree = 0;
         this.chordCount = 0;
         this.chordsAway = 0;
@@ -92,21 +132,86 @@ export class Harmony {
         return TONIC + keyShift(this.homeKey + this.keyOffset);
     }
 
-    pitch(degree, octave = 0) {
-        const { steps } = MODES[this.modeIndex ?? 2];
-        const wrapped = ((degree % 7) + 7) % 7;
-        return this.tonic() + 12 * (octave + Math.floor(degree / 7)) + steps[wrapped];
+    get steps() {
+        return SCALES[this.scale ?? 'dorian'].steps;
     }
 
-    // skip diminished chords
-    stableDegree(degree) {
-        const { steps } = MODES[this.modeIndex ?? 2];
-        for (let k = 0; k < 7; k++) {
-            const d = (degree + k) % 7;
-            const fifth = steps[(d + 4) % 7] + (d + 4 >= 7 ? 12 : 0) - steps[d];
-            if (fifth === 7) return d;
+    // notes in the current scale
+    get size() {
+        return this.steps.length;
+    }
+
+    pitch(degree, octave = 0) {
+        const { steps, size } = this;
+        const wrapped = ((degree % size) + size) % size;
+        return this.tonic() + 12 * (octave + Math.floor(degree / size)) + steps[wrapped];
+    }
+
+    // How many scale steps above `degree` the tone nearest `semitones` sits, or null if none is
+    // close enough; ties go to the lower tone
+    reach(degree, semitones) {
+        let best = null;
+        let distance = Infinity;
+        for (let k = 0; k <= 2 * this.size; k++) {
+            const away = Math.abs(this.pitch(degree + k) - this.pitch(degree) - semitones);
+            if (away < distance) {
+                best = k;
+                distance = away;
+            }
         }
-        return 0;
+        return distance <= HARMONY.reach ? best : null;
+    }
+
+    // the chord's tones as scale steps above its root
+    tones(degree, colour) {
+        return [...new Set(HARMONY.colours[colour].map((aim) => this.reach(degree, aim)).filter((k) => k !== null))];
+    }
+
+    // A move in seven-note scale steps; other scales aim for the same interval
+    toward(degree, move) {
+        if (this.size === 7) return degree + move;
+        return degree + (this.reach(degree, MOVE_SEMITONES[move]) ?? move);
+    }
+
+    // skip chords without a perfect fifth (diminished ones in the modes); a scale with none at
+    // all, like whole tone, keeps the degree
+    stableDegree(degree) {
+        const { steps, size } = this;
+        for (let k = 0; k < size; k++) {
+            const d = (degree + k) % size;
+            if (steps.includes((steps[d] + 7) % 12)) return d;
+        }
+        return degree % size;
+    }
+
+    // The source's family picks the scale, the weather may bend it; it changes on phrase starts
+    chooseScale({ kind, brightness, shape, departure, uncertainty, mood }, phraseStart) {
+        const family = FAMILIES[kind] ?? FAMILIES.weather;
+        const rung = brightness * (family.ladder.length - 1);
+        if (this.rung === null) this.rung = Math.round(rung);
+        else if (phraseStart && Math.abs(rung - this.rung) > HARMONY.modeHysteresis) this.rung += Math.sign(rung - this.rung);
+        this.rung = clamp(this.rung, 0, family.ladder.length - 1);
+        if (this.scale !== null && !phraseStart) return;
+
+        let scale = family.ladder[this.rung];
+        if (this.flavoured && family.flavours?.[scale]) scale = family.flavours[scale];
+        if (family.storm && HARMONY.storms.includes(mood)) scale = family.storm;
+        else if (family.departure && departure >= HARMONY.tension) scale = family.departure;
+        else if (family.mist && uncertainty >= HARMONY.uncertain) scale = family.mist;
+        else if (family.still && shape === 'still') scale = family.still[brightness >= 0.5 ? 1 : 0];
+        if (scale === this.scale) return;
+
+        // keep the current chord root as near as the new scale allows
+        const root = this.scale === null ? null : this.pitch(this.degree);
+        this.scale = scale;
+        if (root !== null) {
+            let best = 0;
+            for (let d = 0; d < this.size; d++) {
+                const gap = (p) => Math.abs(((p - root) % 12 + 18) % 12 - 6);
+                if (gap(this.pitch(d)) < gap(this.pitch(best))) best = d;
+            }
+            this.degree = best;
+        }
     }
 
     // Long-term trend of the primary reading, which the key follows
@@ -115,11 +220,9 @@ export class Harmony {
         this.trend = this.trend === null ? x : this.trend + (x - this.trend) / tau;
     }
 
-    next({ time, brightness, expected, floor, departure, uncertainty, range }) {
+    next({ time, brightness, expected, floor, departure, uncertainty, range, kind, shape, mood }) {
         const phraseStart = this.chordCount % 2 === 0;
-        const rung = brightness * (MODES.length - 1);
-        if (this.modeIndex === null) this.modeIndex = Math.round(rung);
-        else if (phraseStart && Math.abs(rung - this.modeIndex) > HARMONY.modeHysteresis) this.modeIndex += Math.sign(rung - this.modeIndex);
+        this.chooseScale({ kind, brightness, shape, departure, uncertainty, mood }, phraseStart);
 
         const slope = expected !== null && this.lastExpected !== null ? expected - this.lastExpected : 0;
         this.lastExpected = expected;
@@ -127,7 +230,7 @@ export class Harmony {
         // On a key change the previous tonic chord is reinterpreted as IV (up a fifth) or V (down)
         const step = phraseStart && this.chordCount > 0 ? this.modulate(time, range, departure) : 0;
         if (step) {
-            this.degree = this.stableDegree(step > 0 ? 3 : 4);
+            this.degree = this.stableDegree(this.toward(0, step > 0 ? 3 : 4) % this.size);
             this.chordsAway = HARMONY.homePull - 1;
         } else {
             this.degree = this.chordCount === 0 ? 0 : this.nextDegree(slope, floor);
@@ -143,7 +246,7 @@ export class Harmony {
             notes,
             colour,
             tonic: this.tonic(),
-            mode: MODES[this.modeIndex].name,
+            mode: SCALES[this.scale].name,
             degree: this.degree,
             phraseStart,
             keyChange: step,
@@ -165,7 +268,7 @@ export class Harmony {
     nextDegree(slope, floor) {
         const trend = slope > floor * 0.5 ? 'rising' : slope < -floor * 0.5 ? 'falling' : 'steady';
         const moves = HARMONY.moves[trend].slice();
-        if (this.chordsAway >= HARMONY.homePull) moves.push([(7 - this.degree) % 7, HARMONY.home]);
+        if (this.chordsAway >= HARMONY.homePull) moves.push(['home', HARMONY.home]);
         let r = this.rng() * moves.reduce((sum, [, weight]) => sum + weight, 0);
         let step = moves[moves.length - 1][0];
         for (const [move, weight] of moves) {
@@ -174,19 +277,20 @@ export class Harmony {
                 break;
             }
         }
-        return this.stableDegree((this.degree + step) % 7);
+        if (step === 'home') return 0;
+        return this.stableDegree(this.toward(this.degree, step) % this.size);
     }
 
     colour(departure, uncertainty) {
         let wish = this.rng() < HARMONY.calmAdd9 ? 'add9' : 'triad';
         if (uncertainty >= HARMONY.uncertain) wish = 'sus2';
         if (departure >= HARMONY.tension) wish = 'seventh';
-        return [wish, 'add9', 'triad'].find((colour) => this.consonant(this.degree, colour));
+        return [wish, 'add9', 'triad', 'sus2'].find((colour) => this.consonant(this.degree, colour)) ?? 'fifth';
     }
 
     // no semitones or major sevenths between chord tones in this mode
     consonant(degree, colour) {
-        const classes = HARMONY.colours[colour].map((step) => this.pitch(degree + step) % 12);
+        const classes = this.tones(degree, colour).map((step) => this.pitch(degree + step) % 12);
         for (let a = 0; a < classes.length; a++) {
             for (let b = a + 1; b < classes.length; b++) {
                 const interval = (classes[b] - classes[a] + 12) % 12;
@@ -201,7 +305,7 @@ export class Harmony {
     voice(degree, colour) {
         const [lo, hi] = HARMONY.range;
         const centre = (lo + hi) / 2;
-        const options = HARMONY.colours[colour].map((step) => {
+        const options = this.tones(degree, colour).map((step) => {
             const pc = this.pitch(degree + step) % 12;
             const placements = [];
             for (let midi = lo; midi <= hi; midi++) if (midi % 12 === pc) placements.push(midi);
@@ -232,7 +336,7 @@ export class Harmony {
             for (const midi of options[i]) visit(i + 1, [...chosen, midi]);
         };
         visit(0, []);
-        return best ?? HARMONY.colours.triad.map((step) => this.pitch(degree + step, 1));
+        return best ?? this.tones(degree, 'triad').map((step) => this.pitch(degree + step, 1));
     }
 
     // root in whichever octave is nearest the last bass note

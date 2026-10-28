@@ -19,13 +19,11 @@ const START_FADE = 3;
 const SWITCH_FADE = 2.6;
 const DEPARTURE_TAU = 6;      // seconds a departure lingers in the music
 const FADE = { in: 2.5, out: 4 };
+const DYNAMICS = { range: [0.5, 1], tau: 3 };   // bus gain of a playing voice, quiet to full arrangement
 
-// Freezes a param where it is now. Firefox has no cancelAndHoldAtTime, so it holds the current value.
+// Freezes a param where it is now, so the next ramp starts from here. Not cancelAndHoldAtTime:
+// with no ramp running it pins nothing, and the next ramp starts from the last event, minutes back.
 function hold(param, now) {
-    if (param.cancelAndHoldAtTime) {
-        param.cancelAndHoldAtTime(now);
-        return;
-    }
     const value = param.value;
     param.cancelScheduledValues(now);
     param.setValueAtTime(value, now);
@@ -290,7 +288,8 @@ export class Engine extends EventTarget {
         this.orchestra.update(now, { shape: this.state.memory.shape, departure: this.departure.level, busy: Boolean(this.melody.pending) });
         this.departure.level *= Math.exp(-dt / DEPARTURE_TAU);
         if (this.nextChord < now + LOOKAHEAD) this.playChord(Math.max(this.nextChord, now));
-        this.melody.tick(now, { departure: this.departure, density: this.controls.density, current: this.state.memory.current() });
+        this.arrange(now);
+        this.melody.tick(now, { departure: this.departure, density: this.controls.density, current: this.state.memory.current(), intensity: this.orchestra.intensity });
         this.noise.update(now, dt, {
             kind: this.state.source.kind,
             sample: this.lastSample,
@@ -300,7 +299,8 @@ export class Engine extends EventTarget {
             presence: this.graph.buses.noise.gain.value
         });
 
-        const texture = clamp(0.15 + 0.7 * this.normalised('texture') + 0.3 * (this.controls.texture - 0.5));
+        // the pads open up as the arrangement fills
+        const texture = clamp(0.15 + 0.7 * this.normalised('texture') + 0.3 * (this.controls.texture - 0.5) + 0.35 * (this.orchestra.intensity - 0.5));
         const cutoff = between(PADS.cutoff, texture) * (1 + 0.12 * Math.sin((now * Math.PI) / 23));
         this.graph.pads.frequency.setTargetAtTime(cutoff, now, 1.5);
     }
@@ -368,7 +368,10 @@ export class Engine extends EventTarget {
             floor: this.state.source.channels.find((c) => c.role === 'primary').floor,
             departure: d,
             uncertainty: obs?.u ?? 0,
-            range: this.ranges.primary
+            range: this.ranges.primary,
+            kind: this.state.source.kind,
+            shape: this.state.memory.shape,
+            mood: this.noise.preset
         });
         if (chord.keyChange) {
             this.dispatchEvent(new CustomEvent('key', { detail: { offset: this.harmony.keyOffset, step: chord.keyChange } }));
@@ -391,9 +394,24 @@ export class Engine extends EventTarget {
     lineupChanged(voices, now) {
         for (const name of ORCHESTRATED) {
             const on = voices.includes(name);
-            this.graph.buses[name].gain.setTargetAtTime(on ? 1 : 0, now, on ? FADE.in : FADE.out);
+            this.graph.buses[name].gain.setTargetAtTime(on ? this.dynamics() : 0, now, on ? FADE.in : FADE.out);
         }
+        this.arranged = this.dynamics();
         this.dispatchEvent(new CustomEvent('lineup', { detail: { voices: [...voices, ...ALWAYS], solo: !voices.length } }));
+    }
+
+    dynamics() {
+        return between(DYNAMICS.range, this.orchestra.intensity);
+    }
+
+    // Playing voices swell and fade with the arrangement's intensity
+    arrange(now) {
+        const level = this.dynamics();
+        if (Math.abs(level - (this.arranged ?? 0)) < 0.02) return;
+        this.arranged = level;
+        for (const name of ORCHESTRATED) {
+            if (this.orchestra.has(name)) this.graph.buses[name].gain.setTargetAtTime(level, now, DYNAMICS.tau);
+        }
     }
 
     // dispatched when the audio actually plays
