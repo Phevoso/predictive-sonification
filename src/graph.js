@@ -7,7 +7,7 @@ export const VOICES = ['pads', 'piano', 'bass', 'noise'];
 // Each voice is trimmed so a typical note or chord sits at REFERENCE (dBFS RMS) on its own, which
 // tools/calibrate.html checks. MIX is the balance between them, in dB.
 export const REFERENCE = -24;
-const MIX = { pads: -3.5, piano: -3.5, bass: 7, noise: 6 };
+const MIX = { pads: -3.5, piano: -3.5, bass: 7, noise: 4.5 };
 const fromDb = (db) => 10 ** (db / 20);
 
 const FX = {

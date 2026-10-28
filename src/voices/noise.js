@@ -45,21 +45,23 @@ const NOISE = {
 const CALM = {
     level: 0.24,                      // trim: about 4 dB under REFERENCE at the top of a breath
     wind: [0.8, 1.25],                // the low-pass opens this much from still air to wind
-    whistle: { q: 9, sweep: [550, 1300], period: 23 }
+    ceiling: 560,                     // Hz; wind never opens the bed past this, or past ice's own low-pass
+    whistle: { q: 9, sweep: [180, 380], period: 23 }
 };
 
-// Each condition's bed. tilt: brown against pink; lowpass and highpass in Hz; period: seconds per
-// breath; depth: how far a breath dips; patter: soft drop-like flutter; whistle: a narrow band
-// sweeping like wind in a gap; level: trims that keep them equally loud, give or take a little.
+// Each condition's bed, all of it low except ice: a quiet, higher hiss with its top still rolled off. tilt: brown against pink; lowpass and highpass in Hz;
+// period: seconds per breath; depth: how far a breath dips; patter: soft drop-like flutter;
+// whistle: a narrow band sweeping like wind in a gap; level: trims that keep them equally loud,
+// give or take a little.
 const PROFILES = {
     dry: { tilt: 0.9, lowpass: 200, highpass: 25, period: [14, 24], depth: 0.2, patter: 0, whistle: 0, level: 0.94 },
-    summer: { tilt: 0.55, lowpass: 650, highpass: 70, period: [10, 18], depth: 0.25, patter: 0, whistle: 0, level: 1.05 },
-    rain: { tilt: 0.3, lowpass: 1500, highpass: 160, period: [6, 12], depth: 0.25, patter: 0.55, whistle: 0, level: 1.21 },
+    summer: { tilt: 0.93, lowpass: 190, highpass: 60, period: [22, 34], depth: 0.06, patter: 0, whistle: 0, level: 0.45 },
+    rain: { tilt: 0.6, lowpass: 420, highpass: 80, period: [20, 30], depth: 0.05, patter: 0, whistle: 0, level: 0.92 },
     mist: { tilt: 0.97, lowpass: 140, highpass: 20, period: [18, 30], depth: 0.6, patter: 0, whistle: 0, level: 1.19 },
-    storm: { tilt: 0.5, lowpass: 950, highpass: 30, period: [4, 8], depth: 0.65, patter: 0.35, whistle: 0.15, level: 1.29 },
-    ice: { tilt: 0.1, lowpass: 3500, highpass: 1000, period: [12, 20], depth: 0.2, patter: 0, whistle: 0, level: 1.09 },
+    storm: { tilt: 0.7, lowpass: 260, highpass: 30, period: [4, 8], depth: 0.65, patter: 0.35, whistle: 0.15, level: 1.32 },
+    ice: { tilt: 0.25, lowpass: 600, highpass: 300, period: [16, 26], depth: 0.15, patter: 0, whistle: 0, level: 0.35 },
     snow: { tilt: 0.92, lowpass: 120, highpass: 20, period: [20, 34], depth: 0.1, patter: 0, whistle: 0, level: 0.79 },
-    gale: { tilt: 0.6, lowpass: 700, highpass: 90, period: [3, 7], depth: 0.6, patter: 0, whistle: 0.35, level: 1.38 }
+    gale: { tilt: 0.7, lowpass: 240, highpass: 50, period: [3, 7], depth: 0.6, patter: 0, whistle: 0.35, level: 1.23 }
 };
 
 // classifyCondition from the original patch
@@ -163,7 +165,7 @@ export class WeatherNoise {
         const profile = PROFILES[this.preset];
         const glide = NOISE.glide;
         const wind = between(CALM.wind, sliders.windiness / 127);
-        this.calmFilter.frequency.setTargetAtTime(profile.lowpass * wind, now, glide);
+        this.calmFilter.frequency.setTargetAtTime(Math.min(Math.max(CALM.ceiling, profile.lowpass), profile.lowpass * wind), now, glide);
         this.calmHighpass.frequency.setTargetAtTime(profile.highpass, now, glide);
         this.calmLevel.gain.setTargetAtTime(CALM.level * profile.level, now, glide);
         this.whistleLevel.gain.setTargetAtTime(profile.whistle, now, glide);
