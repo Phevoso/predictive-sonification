@@ -22,6 +22,17 @@ const DEPARTURE_TAU = 6;      // seconds a departure lingers in the music
 const CLICK_GAP = 1.5;
 const FADE = { in: 2.5, out: 4 };
 
+// Freezes a param where it is now. Firefox has no cancelAndHoldAtTime, so it holds the current value.
+function hold(param, now) {
+    if (param.cancelAndHoldAtTime) {
+        param.cancelAndHoldAtTime(now);
+        return;
+    }
+    const value = param.value;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(value, now);
+}
+
 // 5th to 95th percentile of a channel
 function range(samples, key) {
     const values = samples.map((s) => s.values[key]).filter((v) => v !== null && v !== undefined).sort((a, b) => a - b);
@@ -66,6 +77,8 @@ export class Engine extends EventTarget {
 
     async start() {
         if (this.running) return;
+        // iOS treats Web Audio as ambient sound, muted by the ringer switch, unless asked otherwise
+        if (navigator.audioSession) navigator.audioSession.type = 'playback';
         // create and resume the context before any await, while still inside the click
         this.ctx ??= new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
         const token = ++this.startToken;
@@ -85,7 +98,7 @@ export class Engine extends EventTarget {
         const now = this.ctx.currentTime;
         this.reset(now);
         const level = this.graph.master.gain;
-        level.cancelAndHoldAtTime(now);
+        hold(level, now);
         level.linearRampToValueAtTime(LEVEL, now + START_FADE);
 
         this.lastTick = now;
@@ -100,7 +113,7 @@ export class Engine extends EventTarget {
         clearInterval(this.timer);
         if (this.graph) {
             const now = this.ctx.currentTime;
-            this.graph.master.gain.cancelAndHoldAtTime(now);
+            hold(this.graph.master.gain, now);
             this.graph.master.gain.linearRampToValueAtTime(0, now + 0.8);
             this.bass.fade(now, 0.3);
         }
