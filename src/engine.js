@@ -33,6 +33,33 @@ function hold(param, now) {
     param.setValueAtTime(value, now);
 }
 
+// iOS plays Web Audio as ambient sound, which the ringer switch mutes. A media element playing
+// alongside moves the page onto the media channel. The silence is at the context's own rate,
+// since iOS drops its output rate to match a lower-rate track.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function silentTrack(sampleRate, seconds = 0.5) {
+    const frames = Math.round(sampleRate * seconds);
+    const wav = new DataView(new ArrayBuffer(44 + frames * 2));
+    const text = (offset, chars) => [...chars].forEach((c, i) => wav.setUint8(offset + i, c.charCodeAt(0)));
+    text(0, 'RIFF');
+    wav.setUint32(4, 36 + frames * 2, true);
+    text(8, 'WAVE');
+    text(12, 'fmt ');
+    wav.setUint32(16, 16, true);
+    wav.setUint16(20, 1, true);              // PCM
+    wav.setUint16(22, 1, true);              // mono
+    wav.setUint32(24, sampleRate, true);
+    wav.setUint32(28, sampleRate * 2, true);
+    wav.setUint16(32, 2, true);
+    wav.setUint16(34, 16, true);
+    text(36, 'data');
+    wav.setUint32(40, frames * 2, true);
+    const audio = new Audio(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
+    audio.loop = true;
+    return audio;
+}
+
 // 5th to 95th percentile of a channel
 function range(samples, key) {
     const values = samples.map((s) => s.values[key]).filter((v) => v !== null && v !== undefined).sort((a, b) => a - b);
@@ -56,6 +83,8 @@ export class Engine extends EventTarget {
         this.harmony = new Harmony();
         this.orchestra = new Orchestra((voices, now) => this.lineupChanged(voices, now));
         this.levelBuffer = new Float32Array(512);
+        // before any context exists, so its audio starts out as playback rather than ambient
+        if (navigator.audioSession) navigator.audioSession.type = 'playback';
         this.reset();
     }
 
@@ -77,12 +106,18 @@ export class Engine extends EventTarget {
 
     async start() {
         if (this.running) return;
-        // iOS treats Web Audio as ambient sound, muted by the ringer switch, unless asked otherwise
-        if (navigator.audioSession) navigator.audioSession.type = 'playback';
         // create and resume the context before any await, while still inside the click
         this.ctx ??= new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
         const token = ++this.startToken;
         const resumed = this.ctx.resume();
+        if (IOS) {
+            if (!this.unmute) {
+                this.unmute = silentTrack(this.ctx.sampleRate);
+                // paused from the lock screen or Control Center: stop with it
+                this.unmute.addEventListener('pause', () => this.stop());
+            }
+            this.unmute.play().catch((error) => console.warn('Silent track blocked; the ringer switch may mute the music', error));
+        }
         clearTimeout(this.suspendTimer);
         this.running = true;
         this.dispatchEvent(new Event('statechange'));
@@ -111,6 +146,7 @@ export class Engine extends EventTarget {
         this.running = false;
         this.startToken += 1;
         clearInterval(this.timer);
+        this.unmute?.pause();
         if (this.graph) {
             const now = this.ctx.currentTime;
             hold(this.graph.master.gain, now);
