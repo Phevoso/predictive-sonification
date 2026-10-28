@@ -40,8 +40,10 @@ export class Garden {
     readColours() {
         const style = getComputedStyle(this.canvas);
         const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+        const ink = read('--black', '#000');
         this.colours = {
-            ink: read('--black', '#000'),
+            ink,
+            sand: read('--sand', ink),
             line: read('--grey-light', '#999'),
             faint: read('--grey-border', '#E5E5E5'),
             shu: read('--shu', '#C23B22'),
@@ -175,7 +177,7 @@ export class Garden {
             if (age > grain.life || age < 0) continue;
             const fade = 1 - age / grain.life;
             ctx.globalAlpha = grain.alpha * fade;
-            ctx.fillStyle = c.ink;
+            ctx.fillStyle = c.sand;
             ctx.beginPath();
             ctx.arc(grain.x + grain.vx * age, grain.y + grain.vy * age, grain.size, 0, Math.PI * 2);
             ctx.fill();
