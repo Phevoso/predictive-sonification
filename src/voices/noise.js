@@ -1,7 +1,8 @@
 // Weather noise, always on. Two engines: the rain~.pd worklet, where the current conditions pick
 // one of the patch's eight presets, the readings nudge its sliders (as the sensors did in the
 // original installation) and a strong departure leans it toward the storm preset; or a calm bed of
-// brown and pink noise that opens with the wind and swells slowly, for sleep and meditation.
+// brown and pink noise that swells slowly, for sleep and meditation, shaped differently for each
+// of the eight conditions.
 
 import { between, clamp, lerp, rms } from '../util.js';
 import { DEPARTING } from '../music/melody.js';
@@ -42,14 +43,24 @@ const NOISE = {
 };
 
 const CALM = {
-    tilt: 0.75,                       // brown against pink
-    cutoff: [160, 480],               // Hz, still air to wind and storm
-    swell: { period: [8, 20], depth: [0.15, 0.55] },   // seconds per breath, how far it dips
-    level: 0.24                       // trim: about 4 dB under REFERENCE at the top of a breath
+    level: 0.24,                      // trim: about 4 dB under REFERENCE at the top of a breath
+    wind: [0.8, 1.25],                // the low-pass opens this much from still air to wind
+    whistle: { q: 9, sweep: [550, 1300], period: 23 }
 };
 
-// How open the calm bed is: the windier the sliders, and the stormier the preset, the brighter
-const OPENNESS = { dry: 0, ice: 0.1, snow: 0.2, summer: 0.2, mist: 0.3, rain: 0.5, gale: 0.8, storm: 1 };
+// Each condition's bed. tilt: brown against pink; lowpass and highpass in Hz; period: seconds per
+// breath; depth: how far a breath dips; patter: soft drop-like flutter; whistle: a narrow band
+// sweeping like wind in a gap; level: trims that keep them equally loud, give or take a little.
+const PROFILES = {
+    dry: { tilt: 0.9, lowpass: 200, highpass: 25, period: [14, 24], depth: 0.2, patter: 0, whistle: 0, level: 0.94 },
+    summer: { tilt: 0.55, lowpass: 650, highpass: 70, period: [10, 18], depth: 0.25, patter: 0, whistle: 0, level: 1.05 },
+    rain: { tilt: 0.3, lowpass: 1500, highpass: 160, period: [6, 12], depth: 0.25, patter: 0.55, whistle: 0, level: 1.21 },
+    mist: { tilt: 0.97, lowpass: 140, highpass: 20, period: [18, 30], depth: 0.6, patter: 0, whistle: 0, level: 1.19 },
+    storm: { tilt: 0.5, lowpass: 950, highpass: 30, period: [4, 8], depth: 0.65, patter: 0.35, whistle: 0.15, level: 1.29 },
+    ice: { tilt: 0.1, lowpass: 3500, highpass: 1000, period: [12, 20], depth: 0.2, patter: 0, whistle: 0, level: 1.09 },
+    snow: { tilt: 0.92, lowpass: 120, highpass: 20, period: [20, 34], depth: 0.1, patter: 0, whistle: 0, level: 0.79 },
+    gale: { tilt: 0.6, lowpass: 700, highpass: 90, period: [3, 7], depth: 0.6, patter: 0, whistle: 0.35, level: 1.38 }
+};
 
 // classifyCondition from the original patch
 function weatherCondition({ temperature, humidity, wind }, { code } = {}) {
@@ -102,12 +113,19 @@ export class WeatherNoise {
         second.connect(this.meter);
         this.gain.connect(output);
 
-        this.calmFilter = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: CALM.cutoff[0], Q: 0 });
+        const first = PROFILES.dry;
+        this.calmFilter = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: first.lowpass, Q: 0 });
+        this.calmHighpass = new BiquadFilterNode(ctx, { type: 'highpass', frequency: first.highpass, Q: 0 });
+        this.whistle = new BiquadFilterNode(ctx, { type: 'bandpass', frequency: CALM.whistle.sweep[0], Q: CALM.whistle.q });
+        this.whistleLevel = new GainNode(ctx, { gain: 0 });
         this.swell = new GainNode(ctx, { gain: 1 });
-        const calmLevel = NOISE.engine === 'calm' ? CALM.level : 0;
-        this.calmFilter.connect(this.swell).connect(new GainNode(ctx, { gain: calmLevel })).connect(this.gain);
+        this.calmLevel = new GainNode(ctx, { gain: NOISE.engine === 'calm' ? CALM.level * first.level : 0 });
+        this.calmFilter.connect(this.calmHighpass).connect(this.swell);
+        this.whistle.connect(this.whistleLevel).connect(this.swell);
+        this.swell.connect(this.calmLevel).connect(this.gain);
         this.calm = null;
-        this.breath = { phase: 0, period: CALM.swell.period[1] };
+        this.breath = { phase: 0, period: first.period[1] };
+        this.whistlePhase = 0;
         this.meterBuffer = new Float32Array(2048);
         this.node = null;
         this.preset = 'dry';
@@ -118,15 +136,18 @@ export class WeatherNoise {
 
     load() {
         const worklet = this.ctx.audioWorklet;
+        // rain~ only runs when it is heard; muted it would still cost the audio thread
+        const rain = NOISE.engine === 'rain' || NOISE.rainUnder > 0;
         this.loading ??= Promise.all([
-            worklet.addModule(new URL('../worklets/noise-gen.js', import.meta.url)).then(() => {
+            rain && worklet.addModule(new URL('../worklets/noise-gen.js', import.meta.url)).then(() => {
                 this.node = new AudioWorkletNode(this.ctx, 'weather-noise', { numberOfInputs: 0, outputChannelCount: [2] });
                 this.node.connect(this.lowpass);
             }),
             worklet.addModule(new URL('../worklets/calm-noise.js', import.meta.url)).then(() => {
                 this.calm = new AudioWorkletNode(this.ctx, 'calm-noise', { numberOfInputs: 0, outputChannelCount: [2] });
-                this.calm.parameters.get('tilt').value = CALM.tilt;
+                this.calm.parameters.get('tilt').value = PROFILES.dry.tilt;
                 this.calm.connect(this.calmFilter);
+                this.calm.connect(this.whistle);
             })
         ]).catch((error) => console.warn('Weather noise unavailable', error));
         return this.loading;
@@ -136,18 +157,32 @@ export class WeatherNoise {
         this.gain.gain.setTargetAtTime(lerp(0.4, 1.8, texture), now, 0.5);
     }
 
-    // The calm bed: brighter with wind and stormy weather, breathing slowly, deeper when it's rough
+    // The calm bed in the current condition's shape, gliding between conditions; wind opens it a
+    // little and a strong departure makes it breathe deeper
     updateCalm(now, dt, sliders, storm) {
-        const open = clamp(0.5 * OPENNESS[this.preset] + 0.5 * (sliders.windiness / 127) + storm);
-        this.calmFilter.frequency.setTargetAtTime(between(CALM.cutoff, open), now, NOISE.glide);
+        const profile = PROFILES[this.preset];
+        const glide = NOISE.glide;
+        const wind = between(CALM.wind, sliders.windiness / 127);
+        this.calmFilter.frequency.setTargetAtTime(profile.lowpass * wind, now, glide);
+        this.calmHighpass.frequency.setTargetAtTime(profile.highpass, now, glide);
+        this.calmLevel.gain.setTargetAtTime(CALM.level * profile.level, now, glide);
+        this.whistleLevel.gain.setTargetAtTime(profile.whistle, now, glide);
+        if (this.calm) {
+            this.calm.parameters.get('tilt').setTargetAtTime(profile.tilt, now, glide);
+            this.calm.parameters.get('patter').setTargetAtTime(profile.patter, now, glide);
+        }
+
+        this.whistlePhase = (this.whistlePhase + dt / CALM.whistle.period) % 1;
+        const sweep = 0.5 - 0.5 * Math.cos(2 * Math.PI * this.whistlePhase);
+        this.whistle.frequency.setTargetAtTime(between(CALM.whistle.sweep, sweep), now, 1);
 
         const breath = this.breath;
         breath.phase += dt / breath.period;
         if (breath.phase >= 1) {
             breath.phase -= 1;
-            breath.period = between(CALM.swell.period, this.rng());
+            breath.period = between(profile.period, this.rng());
         }
-        const depth = between(CALM.swell.depth, open);
+        const depth = clamp(profile.depth + storm);
         const dip = 0.5 - 0.5 * Math.cos(2 * Math.PI * breath.phase);
         this.swell.gain.setTargetAtTime(1 - depth * dip, now, 0.4);
     }
